@@ -1,16 +1,20 @@
 /* Copyright (C) 2025 OnionHEN / LightningMods — OnPress overlay domain */
 #include "onpress.hpp"
+#include "overlay_rows_renderer.hpp"
 #include <cstdlib>
 #include <unistd.h>
 
 void RemoveGameWidget(RemoveWidget widget);
 bool CreateGameWidget(CreateWidget widget);
 
-/** Tear down all segments, recompute horizontal packing, rebuild enabled ones. */
+/** Tear down all segments, recompute horizontal packing, rebuild enabled ones.
+ *  The rows style re-creates its widgets on its next render tick. */
 static void rebuild_overlay_bar() {
   RemoveGameWidget(REMOVE_ALL_OVERLAYS);
+  overlay_rows_remove_all();
   apply_overlay_layout();
-  if (!g_settings.overlay_enabled)
+  if (!g_settings.overlay_enabled ||
+      g_settings.overlay_style == onion::kOverlayStyleRows)
     return;
   if (g_settings.overlay_fps)
     CreateGameWidget(CREATE_FPS_OVERLAY);
@@ -114,6 +118,32 @@ static OnPressResult id_overlay_align(OnPressContext &ctx) {
   return OnPressResult::Handled;
 }
 
+static OnPressResult id_overlay_style(OnPressContext &ctx) {
+  const int style = atoi(ctx.value.c_str());
+  if (style == g_settings.overlay_style) {
+    return OnPressResult::EarlyReturn;
+  }
+  if (style != onion::kOverlayStyleBar && style != onion::kOverlayStyleRows) {
+    return OnPressResult::EarlyReturn;
+  }
+  g_settings.overlay_style = style;
+  overlay_rows_reset_state();
+  rebuild_overlay_bar();
+  ctx.reload_main = true;
+  return OnPressResult::Handled;
+}
+
+static OnPressResult id_overlay_margin(OnPressContext &ctx) {
+  const int px = atoi(ctx.value.c_str());
+  if (px == g_settings.overlay_margin || !onion::overlay_margin_valid(px)) {
+    return OnPressResult::EarlyReturn;
+  }
+  /* Rows re-places itself on its next render tick; no teardown needed. */
+  g_settings.overlay_margin = px;
+  ctx.reload_main = true;
+  return OnPressResult::Handled;
+}
+
 static OnPressResult id_overlay_font_size(OnPressContext &ctx) {
   const int size = atoi(ctx.value.c_str());
   if (size == g_settings.overlay_font_size) {
@@ -181,6 +211,8 @@ static const OnPressExactEntry kExact[] = {
     {"id_all_cpu_usage", id_all_cpu_usage},
     {"id_overlay_change_pos", id_overlay_change_pos},
     {"id_overlay_align", id_overlay_align},
+    {"id_overlay_style", id_overlay_style},
+    {"id_overlay_margin", id_overlay_margin},
     {"id_overlay_font_size", id_overlay_font_size},
     {"id_overlay_fps_order", id_overlay_fps_order},
     {"id_overlay_cpu_order", id_overlay_cpu_order},

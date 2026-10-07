@@ -69,7 +69,7 @@ OnionHEN is a practical homebrew stack for jailbroken PS5 consoles.
 - **ShadowMount+** — available as the optional external `onionHEN-shadowmountplus-plugin`
 - **Remote Play pairing** — enable the native PS5 Remote Play service, generate a pairing PIN, and register a client from the Network section
 - **User payload manager** — start and stop user-provided `.elf` payloads, with optional auto-start
-- **Game overlay** — an in-game bar for FPS, CPU, GPU, RAM, temperatures, and network info
+- **Game overlay** — FPS, CPU, GPU, RAM, temperatures, fan, and network info, as a full-width edge bar or a corner metrics panel with usage bars, trend graphs, average and 1% low FPS
 - **Cheat engine** — local JSON, SHN, MC4, and ShnExt files that can be toggled at runtime
 - **DPI v2** — available as the optional external `onionHEN-dpiv2-plugin`
 - **Console tools** — account activation, external HDD, Title IDs, fan control, shortcuts, and game options
@@ -289,6 +289,8 @@ default from [`config.ini.example`](config.ini.example).
 | `cooling.temperature_threshold_celsius` | `77` | `0` through `100` |
 | `overlay.enabled` | `true` | `true`, `false` |
 | `overlay.background` | `true` | `true`, `false` |
+| `overlay.style` | `bar` | `bar` (full-width edge bar), `rows` (corner metrics panel) |
+| `overlay.margin` | `0` | `0`, `5`, `10`, `20` (rows panel gap from the screen edges, px) |
 | `overlay.edge` | `top` | `top`, `bottom` |
 | `overlay.align` | `center` | `left`, `center`, `right` |
 | `overlay.font_size` | `medium` | `small`, `medium`, `large` |
@@ -296,6 +298,7 @@ default from [`config.ini.example`](config.ini.example).
 | `overlay.show_cpu` / `overlay.show_gpu` / `overlay.show_memory` / `overlay.show_fps` | `true` | `true`, `false` |
 | `overlay.cpu_usage_mode` | `average` | `average`, `per_core` |
 | `overlay.show_ip_address` | `false` | `true`, `false` |
+| `overlay.show_fan_duty` | `false` | `true`, `false` |
 | `shortcuts.cheats_menu` | `off` | `off`, `r3_l3`, `l2_triangle`, `long_options`, `long_share`, `share` |
 | `shortcuts.toolbox` | `off` | `off`, `l2_r3`, `long_share`, `share` |
 

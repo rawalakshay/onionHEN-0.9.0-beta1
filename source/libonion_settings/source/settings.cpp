@@ -574,6 +574,21 @@ const char *cpu_usage_mode_name(bool per_core) {
   return per_core ? "per_core" : "average";
 }
 
+int parse_overlay_style(const char *s, int def) {
+  if (streq_ci(s, "bar")) {
+    return kOverlayStyleBar;
+  }
+  if (streq_ci(s, "rows")) {
+    return kOverlayStyleRows;
+  }
+  return def;
+}
+
+int parse_overlay_margin(const char *s, int def) {
+  const int px = parse_int_range(s, def, 0, 20);
+  return overlay_margin_valid(px) ? px : def;
+}
+
 int parse_overlay_font_size(const char *s, int def) {
   if (streq_ci(s, "small")) {
     return kOverlayFontSmall;
@@ -801,6 +816,10 @@ bool apply_parser(IniParser *parser, Settings *out) {
                                out->overlay_ip);
   out->overlay_fan = parse_bool(ini_get(parser, "overlay.show_fan_duty"),
                                 out->overlay_fan);
+  out->overlay_style =
+      parse_overlay_style(ini_get(parser, "overlay.style"), out->overlay_style);
+  out->overlay_margin = parse_overlay_margin(ini_get(parser, "overlay.margin"),
+                                             out->overlay_margin);
   out->overlay_font_size = parse_overlay_font_size(
       ini_get(parser, "overlay.font_size"), out->overlay_font_size);
   if (const char *order = ini_get(parser, "overlay.order")) {
@@ -960,6 +979,12 @@ std::string settings_serialize(const Settings &in) {
   b += "# background controls the translucent panel behind the monitor bar.\n";
   b += "# Available values: true, false\n";
   b += "background=" + bool_text(in.overlay_background) + "\n";
+  b += "# style picks the full-width bar or the corner metrics panel.\n";
+  b += "# Available values: bar, rows\n";
+  b += "style=" + std::string(overlay_style_name(in.overlay_style)) + "\n";
+  b += "# margin is the rows panel gap from the screen edges, in pixels.\n";
+  b += "# Available values: 0, 5, 10, 20\n";
+  b += "margin=" + std::to_string(in.overlay_margin) + "\n";
   b += "# edge chooses the screen edge used by the monitor bar.\n";
   b += "# Available values: top, bottom\n";
   b += "edge=" + std::string(overlay_edge_name(in.overlay_pos)) + "\n";

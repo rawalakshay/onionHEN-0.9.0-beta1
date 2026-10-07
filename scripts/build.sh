@@ -121,6 +121,8 @@ while [[ $# -gt 0 ]]; do
     *) die "Unknown option: $1 (see --help)" ;;
   esac
 done
+# --build-dir may have moved BUILD after the defaults above.
+BIN="${BUILD}/bin"
 
 normalize_build_type() {
   case "$1" in

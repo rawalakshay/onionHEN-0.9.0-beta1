@@ -94,6 +94,12 @@ enabled=true
 # background controls the translucent panel behind the monitor bar.
 # Available values: true, false
 background=true
+# style picks the full-width bar or the corner metrics panel.
+# Available values: bar, rows
+style=bar
+# margin is the rows panel gap from the screen edges, in pixels.
+# Available values: 0, 5, 10, 20
+margin=0
 # edge chooses the screen edge used by the monitor bar.
 # Available values: top, bottom
 edge=top

@@ -46,6 +46,7 @@ Binary: `source/util/build/host-tests/onion-host-tests`
 | `test_reg_entity` | registry entity-id formula (account slots) |
 | `test_toolbox_helpers` | UI path rewrite + payload .elf basename filter |
 | `test_overlay_layout` | monitor-bar packing: top/bottom × left/right, hidden metrics, per-core width |
+| `test_overlay_rows` | rows-style panel: corner placement, chrome vs background, value formatting, bars, temp colours, section order, trend columns, FPS avg / 1% low |
 | `test_settings` | semantic schema serialize/round-trip, partial INI defaults |
 | `test_fps_formula` | broad PS4 BC classification: PPSA/PPSB/CUSA/PCAS/PCJS/PCKS/CUHJ prefix detection |
 | `test_ready` | ready markers, PID-bound process instances, path builder, name rejection, **fps_overlay / util_booted** flags, toolbox runtime-root marker |

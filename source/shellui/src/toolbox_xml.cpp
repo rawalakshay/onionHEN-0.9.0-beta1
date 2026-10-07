@@ -723,6 +723,24 @@ void append_toolbox_display_group(ps5ui::Group& g) {
                      toolbox_i18n::tr("overlay.background"),
                      toolbox_on("id_overlay_background"), std::nullopt,
                      toolbox_i18n::tr("overlay.background.desc"))
+             .list("id_overlay_style", toolbox_i18n::tr("overlay.style"),
+                   [](ps5ui::ListBuilder& L) {
+                     L.item("id_overlay_style_bar",
+                            toolbox_i18n::tr("overlay.style.bar"), "0")
+                         .item("id_overlay_style_rows",
+                               toolbox_i18n::tr("overlay.style.rows"), "1");
+                   },
+                   toolbox_i18n::tr("overlay.style.sub"),
+                   toolbox_val("id_overlay_style"))
+             .list("id_overlay_margin", toolbox_i18n::tr("overlay.margin"),
+                   [](ps5ui::ListBuilder& L) {
+                     for (int px : onion::kOverlayMarginOptions) {
+                       const std::string v = std::to_string(px);
+                       L.item("id_overlay_margin_" + v, v + " px", v);
+                     }
+                   },
+                   toolbox_i18n::tr("overlay.margin.sub"),
+                   toolbox_val("id_overlay_margin"))
              .list("id_overlay_change_pos", toolbox_i18n::tr("overlay.pos"),
                    [](ps5ui::ListBuilder& L) {
                      L.item("id_overlay_pos_1",

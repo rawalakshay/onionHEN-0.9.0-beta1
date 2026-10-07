@@ -154,6 +154,26 @@ inline constexpr int kOverlayFontSmall = 0;
 inline constexpr int kOverlayFontMedium = 1;
 inline constexpr int kOverlayFontLarge = 2;
 
+/** Single-row edge bar (classic) or the corner metrics panel. */
+inline constexpr int kOverlayStyleBar = 0;
+inline constexpr int kOverlayStyleRows = 1;
+
+inline const char *overlay_style_name(int style) {
+  return style == kOverlayStyleRows ? "rows" : "bar";
+}
+
+/** Gap in pixels between the rows panel and the screen edges it hugs. */
+inline constexpr std::array<int, 4> kOverlayMarginOptions = {0, 5, 10, 20};
+inline constexpr int kOverlayMarginDefault = 0;
+
+inline constexpr bool overlay_margin_valid(int px) {
+  for (int option : kOverlayMarginOptions) {
+    if (option == px)
+      return true;
+  }
+  return false;
+}
+
 inline constexpr int kOverlayFontPtSmall = 14;
 inline constexpr int kOverlayFontPtMedium = 18;
 inline constexpr int kOverlayFontPtLarge = 24;
@@ -319,6 +339,10 @@ struct Settings {
   int overlay_pos = 0; // 0/1 top edge, 2/3 bottom edge
   /** 0 left, 1 center, 2 right. Independent of overlay.edge. */
   int overlay_align = kOverlayAlignCenter;
+  /** kOverlayStyleBar or kOverlayStyleRows. */
+  int overlay_style = kOverlayStyleBar;
+  /** Rows panel edge gap in pixels; one of kOverlayMarginOptions. */
+  int overlay_margin = kOverlayMarginDefault;
   /** 0 small, 1 medium, 2 large. Applies to the whole monitor bar. */
   int overlay_font_size = kOverlayFontMedium;
   /** Display order of the six metrics; values are kOverlayMetric*. */

@@ -157,6 +157,8 @@ static int test_full_schema_roundtrip(void) {
   in.all_cpu_usage = true;
   in.overlay_pos = 2;
   in.overlay_align = onion::kOverlayAlignRight;
+  in.overlay_style = onion::kOverlayStyleRows;
+  in.overlay_margin = 10;
   in.overlay_font_size = onion::kOverlayFontLarge;
   in.overlay_order = {onion::kOverlayMetricFan, onion::kOverlayMetricFps,
                       onion::kOverlayMetricCpu, onion::kOverlayMetricGpu,
@@ -197,6 +199,8 @@ static int test_full_schema_roundtrip(void) {
   TEST_ASSERT_TRUE(out.all_cpu_usage == in.all_cpu_usage);
   TEST_ASSERT_EQ_INT(in.overlay_pos, out.overlay_pos);
   TEST_ASSERT_EQ_INT(in.overlay_align, out.overlay_align);
+  TEST_ASSERT_EQ_INT(in.overlay_style, out.overlay_style);
+  TEST_ASSERT_EQ_INT(in.overlay_margin, out.overlay_margin);
   TEST_ASSERT_EQ_INT(in.overlay_font_size, out.overlay_font_size);
   TEST_ASSERT_EQ_INT(in.overlay_order[0], out.overlay_order[0]);
   TEST_ASSERT_EQ_INT(in.overlay_order[1], out.overlay_order[1]);
@@ -340,6 +344,8 @@ static int test_serialize_contains_overlay_keys(void) {
   TEST_ASSERT_TRUE(text.find("show_ip_address=true") != std::string::npos);
   TEST_ASSERT_TRUE(text.find("cpu_usage_mode=per_core") != std::string::npos);
   TEST_ASSERT_TRUE(text.find("edge=bottom") != std::string::npos);
+  TEST_ASSERT_TRUE(text.find("style=bar") != std::string::npos);
+  TEST_ASSERT_TRUE(text.find("margin=0") != std::string::npos);
   TEST_ASSERT_TRUE(text.find("font_size=medium") != std::string::npos);
   TEST_ASSERT_TRUE(text.find("order=fps,cpu,gpu,memory,ip,fan") !=
                    std::string::npos);
@@ -752,12 +758,14 @@ static int test_overlay_font_and_order(void) {
   FILE *f = fopen(path.c_str(), "w");
   TEST_ASSERT_TRUE(f != nullptr);
   fputs("[meta]\nschema_version=1\n\n[overlay]\n"
-        "font_size=large\norder=fan,ip,ram\n",
+        "style=ROWS\nmargin=20\nfont_size=large\norder=fan,ip,ram\n",
         f);
   fclose(f);
   onion::Settings out{};
   TEST_ASSERT_TRUE(onion::settings_load_file(path.c_str(), &out));
   TEST_ASSERT_EQ_INT(onion::kOverlayFontLarge, out.overlay_font_size);
+  TEST_ASSERT_EQ_INT(onion::kOverlayStyleRows, out.overlay_style);
+  TEST_ASSERT_EQ_INT(20, out.overlay_margin);
   TEST_ASSERT_EQ_INT(onion::kOverlayMetricFan, out.overlay_order[0]);
   TEST_ASSERT_EQ_INT(onion::kOverlayMetricIp, out.overlay_order[1]);
   TEST_ASSERT_EQ_INT(onion::kOverlayMetricMemory, out.overlay_order[2]);
@@ -769,11 +777,16 @@ static int test_overlay_font_and_order(void) {
 
   f = fopen(path.c_str(), "w");
   TEST_ASSERT_TRUE(f != nullptr);
-  fputs("[meta]\nschema_version=1\n\n[overlay]\nfont_size=tiny\norder=\n", f);
+  fputs("[meta]\nschema_version=1\n\n[overlay]\nstyle=grid\nmargin=7\n"
+        "font_size=tiny\norder=\n",
+        f);
   fclose(f);
   onion::Settings invalid{};
   TEST_ASSERT_TRUE(onion::settings_load_file(path.c_str(), &invalid));
   TEST_ASSERT_EQ_INT(onion::kOverlayFontMedium, invalid.overlay_font_size);
+  TEST_ASSERT_EQ_INT(onion::kOverlayStyleBar, invalid.overlay_style);
+  /* only 0/5/10/20 are offered; anything else falls back to the default */
+  TEST_ASSERT_EQ_INT(onion::kOverlayMarginDefault, invalid.overlay_margin);
   TEST_ASSERT_EQ_INT(onion::kOverlayMetricFps, invalid.overlay_order[0]);
   TEST_ASSERT_EQ_INT(onion::kOverlayMetricFan, invalid.overlay_order[5]);
 

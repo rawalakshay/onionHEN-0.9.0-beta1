@@ -271,6 +271,8 @@ OnionHEN 在下面两处读写同一份配置：
 | `cooling.temperature_threshold_celsius` | `77` | `0` 到 `100` |
 | `overlay.enabled` | `true` | `true`, `false` |
 | `overlay.background` | `true` | `true`, `false` |
+| `overlay.style` | `bar` | `bar`（全宽边缘监控条）、`rows`（角落指标面板） |
+| `overlay.margin` | `0` | `0`、`5`、`10`、`20`（角落面板与屏幕边缘的间距，像素） |
 | `overlay.edge` | `top` | `top`, `bottom` |
 | `overlay.align` | `center` | `left`, `center`, `right` |
 | `overlay.font_size` | `medium` | `small`, `medium`, `large` |
@@ -278,6 +280,7 @@ OnionHEN 在下面两处读写同一份配置：
 | `overlay.show_cpu` / `overlay.show_gpu` / `overlay.show_memory` / `overlay.show_fps` | `true` | `true`, `false` |
 | `overlay.cpu_usage_mode` | `average` | `average`, `per_core` |
 | `overlay.show_ip_address` | `false` | `true`, `false` |
+| `overlay.show_fan_duty` | `false` | `true`, `false` |
 | `shortcuts.cheats_menu` | `off` | `off`, `r3_l3`, `l2_triangle`, `long_options`, `long_share`, `share` |
 | `shortcuts.toolbox` | `off` | `off`, `l2_r3`, `long_share`, `share` |
 
