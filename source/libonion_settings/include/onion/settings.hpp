@@ -154,17 +154,45 @@ inline constexpr int kOverlayFontSmall = 0;
 inline constexpr int kOverlayFontMedium = 1;
 inline constexpr int kOverlayFontLarge = 2;
 
-/** Single-row edge bar (classic) or the corner metrics panel. */
-inline constexpr int kOverlayStyleBar = 0;
-inline constexpr int kOverlayStyleRows = 1;
+/** How much the overlay shows, smallest to largest. */
+inline constexpr int kOverlayDetailMinimal = 0; /* FPS pill only */
+inline constexpr int kOverlayDetailCompact = 1; /* one fitted line */
+inline constexpr int kOverlayDetailPanel = 2;   /* corner panel */
+inline constexpr int kOverlayDetailFull = 3;    /* panel + cores, IP, fan */
+inline constexpr int kOverlayDetailDefault = kOverlayDetailCompact;
 
-inline const char *overlay_style_name(int style) {
-  return style == kOverlayStyleRows ? "rows" : "bar";
+inline constexpr bool overlay_detail_valid(int detail) {
+  return detail >= kOverlayDetailMinimal && detail <= kOverlayDetailFull;
 }
 
-/** Gap in pixels between the rows panel and the screen edges it hugs. */
+inline const char *overlay_detail_name(int detail) {
+  switch (detail) {
+  case kOverlayDetailMinimal:
+    return "minimal";
+  case kOverlayDetailPanel:
+    return "panel";
+  case kOverlayDetailFull:
+    return "full";
+  default:
+    return "compact";
+  }
+}
+
+/** Background opacity in percent; 0 hides the background. */
+inline constexpr std::array<int, 4> kOverlayOpacityOptions = {0, 40, 65, 85};
+inline constexpr int kOverlayOpacityDefault = 65;
+
+inline constexpr bool overlay_opacity_valid(int pct) {
+  for (int option : kOverlayOpacityOptions) {
+    if (option == pct)
+      return true;
+  }
+  return false;
+}
+
+/** Gap in pixels between the overlay and the screen edges it hugs. */
 inline constexpr std::array<int, 4> kOverlayMarginOptions = {0, 5, 10, 20};
-inline constexpr int kOverlayMarginDefault = 0;
+inline constexpr int kOverlayMarginDefault = 10;
 
 inline constexpr bool overlay_margin_valid(int px) {
   for (int option : kOverlayMarginOptions) {
@@ -325,8 +353,8 @@ struct Settings {
   // [overlay]
   /** Master visibility switch for the complete ShellUI game monitor bar. */
   bool overlay_enabled = true;
-  /** Show the translucent background panel behind the game monitor bar. */
-  bool overlay_background = true;
+  /** Background opacity percent; one of kOverlayOpacityOptions, 0 = none. */
+  int overlay_opacity = kOverlayOpacityDefault;
   bool overlay_ram = true;
   bool overlay_cpu = true;
   bool overlay_gpu = true;
@@ -339,9 +367,14 @@ struct Settings {
   int overlay_pos = 0; // 0/1 top edge, 2/3 bottom edge
   /** 0 left, 1 center, 2 right. Independent of overlay.edge. */
   int overlay_align = kOverlayAlignCenter;
-  /** kOverlayStyleBar or kOverlayStyleRows. */
-  int overlay_style = kOverlayStyleBar;
-  /** Rows panel edge gap in pixels; one of kOverlayMarginOptions. */
+  /** kOverlayDetail*: minimal pill, compact line, panel or full panel. */
+  int overlay_detail = kOverlayDetailDefault;
+  /** Show the "4aLse Benchmarks" header line on the panel. */
+  bool overlay_brand = false;
+  /** Also show the FPS pill in the opposite top/bottom corner (compact,
+   *  panel and full; the minimal level already is the pill). */
+  bool overlay_fps_pill = false;
+  /** Edge gap in pixels; one of kOverlayMarginOptions. */
   int overlay_margin = kOverlayMarginDefault;
   /** 0 small, 1 medium, 2 large. Applies to the whole monitor bar. */
   int overlay_font_size = kOverlayFontMedium;

@@ -270,9 +270,11 @@ OnionHEN 在下面两处读写同一份配置：
 | `cooling.fan_control` | `automatic` | `automatic`, `temperature_threshold` |
 | `cooling.temperature_threshold_celsius` | `77` | `0` 到 `100` |
 | `overlay.enabled` | `true` | `true`, `false` |
-| `overlay.background` | `true` | `true`, `false` |
-| `overlay.style` | `bar` | `bar`（全宽边缘监控条）、`rows`（角落指标面板） |
-| `overlay.margin` | `0` | `0`、`5`、`10`、`20`（角落面板与屏幕边缘的间距，像素） |
+| `overlay.detail` | `compact` | `minimal`（仅 FPS）、`compact`（单行）、`panel`（角落面板）、`full`（面板 + 每核 CPU、IP、风扇）。旧的 `overlay.style=bar/rows` 会自动转换为 `compact`/`panel` |
+| `overlay.opacity` | `65` | `0`、`40`、`65`、`85`（背景不透明度 %，`0` 为隐藏）。旧的 `overlay.background=false` 会转换为 `0` |
+| `overlay.brand` | `false` | `true`, `false`（面板顶部品牌标题） |
+| `overlay.fps_pill` | `false` | `true`, `false`（在对侧角落额外显示 FPS 标签） |
+| `overlay.margin` | `10` | `0`、`5`、`10`、`20`（与屏幕边缘的间距，像素） |
 | `overlay.edge` | `top` | `top`, `bottom` |
 | `overlay.align` | `center` | `left`, `center`, `right` |
 | `overlay.font_size` | `medium` | `small`, `medium`, `large` |

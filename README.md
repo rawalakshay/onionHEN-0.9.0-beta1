@@ -288,9 +288,11 @@ default from [`config.ini.example`](config.ini.example).
 | `cooling.fan_control` | `automatic` | `automatic`, `temperature_threshold` |
 | `cooling.temperature_threshold_celsius` | `77` | `0` through `100` |
 | `overlay.enabled` | `true` | `true`, `false` |
-| `overlay.background` | `true` | `true`, `false` |
-| `overlay.style` | `bar` | `bar` (full-width edge bar), `rows` (corner metrics panel) |
-| `overlay.margin` | `0` | `0`, `5`, `10`, `20` (rows panel gap from the screen edges, px) |
+| `overlay.detail` | `compact` | `minimal` (FPS pill), `compact` (one line), `panel` (corner panel), `full` (panel + per-core CPU, IP, fan). Older `overlay.style=bar/rows` configs map to `compact`/`panel` |
+| `overlay.opacity` | `65` | `0`, `40`, `65`, `85` (background opacity %, `0` hides it). Older `overlay.background=false` maps to `0` |
+| `overlay.brand` | `false` | `true`, `false` (brand header on the panel) |
+| `overlay.fps_pill` | `false` | `true`, `false` (also show the FPS pill in the opposite corner) |
+| `overlay.margin` | `10` | `0`, `5`, `10`, `20` (gap from the screen edges, px) |
 | `overlay.edge` | `top` | `top`, `bottom` |
 | `overlay.align` | `center` | `left`, `center`, `right` |
 | `overlay.font_size` | `medium` | `small`, `medium`, `large` |

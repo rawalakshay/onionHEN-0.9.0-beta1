@@ -1,11 +1,13 @@
-/* Copyright (C) 2025 OnionHEN — "rows" overlay style widget reconciler. */
+/* Copyright (C) 2025 OnionHEN — game monitor overlay widget reconciler. */
 
-#include "overlay_rows_renderer.hpp"
+#include "overlay_scene_renderer.hpp"
 
 #include "external_symbols.hpp"
 #include "hooked_funcs.hpp"
 #include "ipc.hpp"
 
+#include <algorithm>
+#include <cmath>
 #include <string>
 #include <unordered_map>
 
@@ -20,25 +22,28 @@ MonoObject *CreateUIColor(float r, float g, float b, float a);
 
 namespace {
 
-using onion::overlay::rows::Font;
-using onion::overlay::rows::Rect;
-using onion::overlay::rows::Rgba;
-using onion::overlay::rows::Scene;
-using onion::overlay::rows::Text;
-using onion::overlay::rows::TextAlign;
+using onion::overlay::scene::Rect;
+using onion::overlay::scene::Rgba;
+using onion::overlay::scene::Scene;
+using onion::overlay::scene::Text;
+using onion::overlay::scene::TextAlign;
 
 constexpr float kOff = onion::overlay::kOffscreen;
 constexpr int kFontStyleBold = 1;
 constexpr int kAlignTop = 0;
+/* Text cells are at least this many × the font size tall. */
+constexpr float kCellLineFactor = 1.6f;
 
 struct Widget {
   MonoObject *obj = nullptr;   /* Panel (rect) or transparent cell (text) */
   MonoObject *label = nullptr; /* text only */
   uint32_t obj_handle = 0;
   uint32_t label_handle = 0;
-  float x = kOff, y = 0.0f, w = -1.0f, h = -1.0f, margin_top = -1.0f;
+  float x = kOff, y = 0.0f, w = -1.0f, h = -1.0f;
   Rgba color{-1.0f, -1.0f, -1.0f, -1.0f};
   std::string text;
+  int pt = 0;     /* text only: font the label was created with */
+  int weight = 0;
   bool seen = false;
 };
 
@@ -97,20 +102,6 @@ bool same_color(const Rgba &a, const Rgba &b) {
   return a.r == b.r && a.g == b.g && a.b == b.b && a.a == b.a;
 }
 
-int font_pt(const Scene &scene, Font font) {
-  switch (font) {
-  case Font::Brand:
-    return scene.brand_pt;
-  case Font::Label:
-    return scene.label_pt;
-  case Font::Value:
-  default:
-    return scene.value_pt;
-  }
-}
-
-int font_weight(Font font) { return font == Font::Value ? 700 : 800; }
-
 /* Shared by rects and text cells: position + size of a Panel. */
 void place_panel(Widget &w, float x, float y, float width, float height) {
   MonoClass *cls = panel_class();
@@ -155,21 +146,23 @@ Widget *create_rect(MonoObject *layer, const Rect &r) {
   return &(g_widgets[r.id] = w);
 }
 
-Widget *create_text(MonoObject *layer, const Scene &scene, const Text &t) {
+Widget *create_text(MonoObject *layer, const Text &t) {
   /* Font first: a failure here must not strand a fresh cell every tick. */
-  MonoObject *font =
-      CreateUIFont(font_pt(scene, t.font), kFontStyleBold, font_weight(t.font));
+  MonoObject *font = CreateUIFont(t.pt, kFontStyleBold, t.weight);
   if (!font)
     return nullptr;
   MonoObject *cell = new_panel(t.id + "_cell", false);
   if (!cell)
     return nullptr;
   const int halign = t.align == TextAlign::Right
-                         ? onion::overlay::rows::kHAlignRight
-                         : onion::overlay::rows::kHAlignLeft;
+                         ? onion::overlay::scene::kHAlignRight
+                         : onion::overlay::scene::kHAlignLeft;
+  /* MarginTop stays 0 for the label's lifetime: on hardware a MarginTop
+   * changed after creation does not move the text, so the vertical offset is
+   * carried by the cell's Y instead (see text_cell). */
   MonoObject *label =
-      CreateLabel(t.id.c_str(), 0.0f, t.margin_top, t.text.c_str(), font,
-                  halign, kAlignTop, t.color.r, t.color.g, t.color.b, t.color.a);
+      CreateLabel(t.id.c_str(), 0.0f, 0.0f, t.text.c_str(), font, halign,
+                  kAlignTop, t.color.r, t.color.g, t.color.b, t.color.a);
   if (!label)
     return nullptr;
   const uint32_t cell_handle = pin(cell);
@@ -191,10 +184,37 @@ Widget *create_text(MonoObject *layer, const Scene &scene, const Text &t) {
   w.label = label;
   w.obj_handle = cell_handle;
   w.label_handle = label_handle;
-  w.margin_top = t.margin_top;
   w.text = t.text;
   w.color = t.color;
+  w.pt = t.pt;
+  w.weight = t.weight;
   return &(g_widgets[t.id] = w);
+}
+
+/* Where a text's transparent cell goes: its top is the text's top (row Y +
+ * margin_top) and it is tall enough that the label never overflows it, so
+ * the label can sit at MarginTop 0 inside. */
+struct CellBox {
+  float y;
+  float h;
+};
+
+CellBox text_cell(const Text &t) {
+  const float top = t.y + t.margin_top;
+  const float fit = std::ceil(static_cast<float>(t.pt) * kCellLineFactor);
+  return {top, std::max(t.h - t.margin_top, fit)};
+}
+
+/* Detach one cached widget and release its pins. */
+void destroy_widget(const std::string &id) {
+  auto it = g_widgets.find(id);
+  if (it == g_widgets.end())
+    return;
+  if (it->second.obj && widget_class())
+    Invoke<void>(pui_img, widget_class(), it->second.obj, "RemoveFromParent");
+  unpin(it->second.label_handle);
+  unpin(it->second.obj_handle);
+  g_widgets.erase(it);
 }
 
 void apply_rect(MonoObject *layer, const Rect &r) {
@@ -216,25 +236,28 @@ void apply_rect(MonoObject *layer, const Rect &r) {
   }
 }
 
-void apply_text(MonoObject *layer, const Scene &scene, const Text &t) {
+void apply_text(MonoObject *layer, const Text &t) {
   auto it = g_widgets.find(t.id);
-  Widget *w =
-      it != g_widgets.end() ? &it->second : create_text(layer, scene, t);
+  /* A label's font is fixed at creation (setting Font in place is untested
+   * on hardware), so a size or weight change rebuilds just that label. */
+  if (it != g_widgets.end() &&
+      (it->second.pt != t.pt || it->second.weight != t.weight)) {
+    destroy_widget(t.id);
+    it = g_widgets.end();
+  }
+  Widget *w = it != g_widgets.end() ? &it->second : create_text(layer, t);
   if (!w)
     return;
   w->seen = true;
   MonoClass *lbl = label_class();
   if (w->w != t.w)
     Set_Property(lbl, w->label, "Width", t.w);
-  place_panel(*w, t.x, t.y, t.w, t.h);
+  const CellBox box = text_cell(t);
+  place_panel(*w, t.x, box.y, t.w, box.h);
   w->x = t.x;
-  w->y = t.y;
+  w->y = box.y;
   w->w = t.w;
-  w->h = t.h;
-  if (w->margin_top != t.margin_top) {
-    Set_Property(lbl, w->label, "MarginTop", t.margin_top);
-    w->margin_top = t.margin_top;
-  }
+  w->h = box.h;
   if (w->text != t.text) {
     Set_Property(lbl, w->label, "Text",
                  mono_string_new(Root_Domain, t.text.c_str()));
@@ -257,7 +280,7 @@ bool ensure_layer(Layer &layer, MonoObject *root, const char *name,
     return false;
   const uint32_t handle = pin(panel);
   if (!handle) {
-    LOG_ERROR("overlay rows: cannot pin %s; panel disabled", name);
+    LOG_ERROR("overlay: cannot pin %s; overlay disabled", name);
     return false;
   }
   MonoClass *cls = panel_class();
@@ -280,16 +303,16 @@ void release_layer(Layer &layer) {
 
 } // namespace
 
-bool overlay_rows_apply(const Scene &scene) {
+bool overlay_scene_apply(const Scene &scene) {
   MonoObject *root = find_root_widget();
   if (!root || !widget_class() || !panel_class() || !label_class())
     return false;
 
   /* Game scene rebuilt under us: the cached widgets hang off the old root. */
   if (g_layer_root && g_layer_root != root)
-    overlay_rows_remove_all();
-  if (!ensure_layer(g_rect_layer, root, "id_orow_layer_rects", scene) ||
-      !ensure_layer(g_text_layer, root, "id_orow_layer_texts", scene))
+    overlay_scene_remove_all();
+  if (!ensure_layer(g_rect_layer, root, "id_osc_layer_rects", scene) ||
+      !ensure_layer(g_text_layer, root, "id_osc_layer_texts", scene))
     return false;
   g_layer_root = root;
 
@@ -299,10 +322,10 @@ bool overlay_rows_apply(const Scene &scene) {
   for (const Rect &r : scene.rects)
     apply_rect(g_rect_layer.obj, r);
   for (const Text &t : scene.texts)
-    apply_text(g_text_layer.obj, scene, t);
+    apply_text(g_text_layer.obj, t);
 
   /* Anything this frame did not mention (e.g. FPS detail rows after a game
-   * exits, trend columns not yet filled) parks off-screen. */
+   * exits, graph columns not yet filled) parks off-screen. */
   for (auto &entry : g_widgets) {
     Widget &w = entry.second;
     if (w.seen || w.x == kOff)
@@ -313,7 +336,7 @@ bool overlay_rows_apply(const Scene &scene) {
   return true;
 }
 
-void overlay_rows_remove_all() {
+void overlay_scene_remove_all() {
   if (g_widgets.empty() && !g_rect_layer.obj && !g_text_layer.obj)
     return;
   /* Detaching a layer takes all of its children along; they only need their
@@ -324,7 +347,7 @@ void overlay_rows_remove_all() {
     unpin(entry.second.label_handle);
     unpin(entry.second.obj_handle);
   }
-  LOG_DEBUG("overlay rows: removed %zu widgets", g_widgets.size());
+  LOG_DEBUG("overlay: removed %zu widgets", g_widgets.size());
   g_widgets.clear();
   g_layer_root = nullptr;
 }

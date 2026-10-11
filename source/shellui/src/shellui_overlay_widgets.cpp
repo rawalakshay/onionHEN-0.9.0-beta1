@@ -92,8 +92,8 @@ constexpr float kFpsR = 1.0f, kFpsG = 230.0f / 255.0f, kFpsB = 0.0f;
 constexpr float kValR = 1.0f, kValG = 1.0f, kValB = 1.0f;
 /* Separator pipe — soft white so it does not compete with values. */
 constexpr float kSepR = 0.75f, kSepG = 0.75f, kSepB = 0.75f;
-/* bg_color = 000000B4 → black @ ~70.6% */
-constexpr float kBgR = 0.0f, kBgG = 0.0f, kBgB = 0.0f, kBgA = 180.0f / 255.0f;
+/* bg_color = black; alpha comes from overlay.opacity */
+constexpr float kBgR = 0.0f, kBgG = 0.0f, kBgB = 0.0f;
 constexpr float kA = 1.0f;
 
 /* VerticalAlignment=0 with FitHeightToText=true for bar labels. */
@@ -241,7 +241,7 @@ void ensure_bg_panel(MonoObject *root) {
 
   /* Hide strip when nothing is enabled (bar_h still set; content empty). */
   const bool any =
-      g_settings.overlay_enabled && g_settings.overlay_background &&
+      g_settings.overlay_enabled && g_settings.overlay_opacity > 0 &&
       (g_settings.overlay_cpu || g_settings.all_cpu_usage ||
        g_settings.overlay_gpu || g_settings.overlay_ram ||
        g_settings.overlay_ip || g_settings.overlay_fps ||
@@ -279,7 +279,8 @@ void ensure_bg_panel(MonoObject *root) {
   Set_Property(panelClass, panel, "Width", g_overlay_layout.bar_w);
   Set_Property(panelClass, panel, "Height", g_overlay_layout.bar_h);
 
-  MonoObject *bg = CreateUIColor(kBgR, kBgG, kBgB, kBgA);
+  MonoObject *bg = CreateUIColor(
+      kBgR, kBgG, kBgB, static_cast<float>(g_settings.overlay_opacity) / 100.0f);
   if (bg)
     Set_Property_Invoke(panelClass, panel, "BackgroundColor", bg);
 

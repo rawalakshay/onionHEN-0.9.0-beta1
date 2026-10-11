@@ -1,20 +1,19 @@
 /* Copyright (C) 2025 OnionHEN / LightningMods — OnPress overlay domain */
 #include "onpress.hpp"
-#include "overlay_rows_renderer.hpp"
+#include "overlay_scene_renderer.hpp"
 #include <cstdlib>
 #include <unistd.h>
 
 void RemoveGameWidget(RemoveWidget widget);
 bool CreateGameWidget(CreateWidget widget);
 
-/** Tear down all segments, recompute horizontal packing, rebuild enabled ones.
- *  The rows style re-creates its widgets on its next render tick. */
+/** Tear down every overlay widget. The scene renderer re-creates what it
+ *  needs on its next render tick; the legacy bar is rebuilt here. */
 static void rebuild_overlay_bar() {
   RemoveGameWidget(REMOVE_ALL_OVERLAYS);
-  overlay_rows_remove_all();
+  overlay_scene_remove_all();
   apply_overlay_layout();
-  if (!g_settings.overlay_enabled ||
-      g_settings.overlay_style == onion::kOverlayStyleRows)
+  if (!g_settings.overlay_enabled || !kOverlayLegacyBarFallback)
     return;
   if (g_settings.overlay_fps)
     CreateGameWidget(CREATE_FPS_OVERLAY);
@@ -44,8 +43,23 @@ static OnPressResult id_overlay_enabled(OnPressContext &ctx) {
   return toggle_overlay_flag(ctx, g_settings.overlay_enabled);
 }
 
-static OnPressResult id_overlay_background(OnPressContext &ctx) {
-  return toggle_overlay_flag(ctx, g_settings.overlay_background);
+static OnPressResult id_overlay_brand(OnPressContext &ctx) {
+  return toggle_overlay_flag(ctx, g_settings.overlay_brand);
+}
+
+static OnPressResult id_overlay_fps_pill(OnPressContext &ctx) {
+  return toggle_overlay_flag(ctx, g_settings.overlay_fps_pill);
+}
+
+static OnPressResult id_overlay_opacity(OnPressContext &ctx) {
+  const int pct = atoi(ctx.value.c_str());
+  if (pct == g_settings.overlay_opacity || !onion::overlay_opacity_valid(pct)) {
+    return OnPressResult::EarlyReturn;
+  }
+  g_settings.overlay_opacity = pct;
+  rebuild_overlay_bar();
+  ctx.reload_main = true;
+  return OnPressResult::Handled;
 }
 
 static OnPressResult id_overlay_gpu(OnPressContext &ctx) {
@@ -118,16 +132,14 @@ static OnPressResult id_overlay_align(OnPressContext &ctx) {
   return OnPressResult::Handled;
 }
 
-static OnPressResult id_overlay_style(OnPressContext &ctx) {
-  const int style = atoi(ctx.value.c_str());
-  if (style == g_settings.overlay_style) {
+static OnPressResult id_overlay_detail(OnPressContext &ctx) {
+  const int detail = atoi(ctx.value.c_str());
+  if (detail == g_settings.overlay_detail ||
+      !onion::overlay_detail_valid(detail)) {
     return OnPressResult::EarlyReturn;
   }
-  if (style != onion::kOverlayStyleBar && style != onion::kOverlayStyleRows) {
-    return OnPressResult::EarlyReturn;
-  }
-  g_settings.overlay_style = style;
-  overlay_rows_reset_state();
+  g_settings.overlay_detail = detail;
+  overlay_scene_reset_state();
   rebuild_overlay_bar();
   ctx.reload_main = true;
   return OnPressResult::Handled;
@@ -138,7 +150,7 @@ static OnPressResult id_overlay_margin(OnPressContext &ctx) {
   if (px == g_settings.overlay_margin || !onion::overlay_margin_valid(px)) {
     return OnPressResult::EarlyReturn;
   }
-  /* Rows re-places itself on its next render tick; no teardown needed. */
+  /* The overlay re-places itself on its next render tick. */
   g_settings.overlay_margin = px;
   ctx.reload_main = true;
   return OnPressResult::Handled;
@@ -201,7 +213,9 @@ static OnPressResult id_overlay_fan_order(OnPressContext &ctx) {
 
 static const OnPressExactEntry kExact[] = {
     {"id_overlay_enabled", id_overlay_enabled},
-    {"id_overlay_background", id_overlay_background},
+    {"id_overlay_opacity", id_overlay_opacity},
+    {"id_overlay_brand", id_overlay_brand},
+    {"id_overlay_fps_pill", id_overlay_fps_pill},
     {"id_overlay_gpu", id_overlay_gpu},
     {"id_overlay_cpu", id_overlay_cpu},
     {"id_overlay_fps", id_overlay_fps},
@@ -211,7 +225,7 @@ static const OnPressExactEntry kExact[] = {
     {"id_all_cpu_usage", id_all_cpu_usage},
     {"id_overlay_change_pos", id_overlay_change_pos},
     {"id_overlay_align", id_overlay_align},
-    {"id_overlay_style", id_overlay_style},
+    {"id_overlay_detail", id_overlay_detail},
     {"id_overlay_margin", id_overlay_margin},
     {"id_overlay_font_size", id_overlay_font_size},
     {"id_overlay_fps_order", id_overlay_fps_order},

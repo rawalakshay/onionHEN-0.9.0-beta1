@@ -91,15 +91,22 @@ temperature_threshold_celsius=77
 # enabled shows or hides the complete game monitor bar.
 # Available values: true, false
 enabled=true
-# background controls the translucent panel behind the monitor bar.
+# detail picks how much the monitor shows: an FPS pill, one compact
+# line, a corner panel, or the panel with per-core CPU, IP and fan.
+# Available values: minimal, compact, panel, full
+detail=compact
+# opacity is the background opacity in percent; 0 hides it.
+# Available values: 0, 40, 65, 85
+opacity=65
+# brand shows the "4aLse Benchmarks" header on the panel.
 # Available values: true, false
-background=true
-# style picks the full-width bar or the corner metrics panel.
-# Available values: bar, rows
-style=bar
-# margin is the rows panel gap from the screen edges, in pixels.
+brand=false
+# fps_pill also shows the FPS pill in the opposite corner.
+# Available values: true, false
+fps_pill=false
+# margin is the gap from the screen edges, in pixels.
 # Available values: 0, 5, 10, 20
-margin=0
+margin=10
 # edge chooses the screen edge used by the monitor bar.
 # Available values: top, bottom
 edge=top

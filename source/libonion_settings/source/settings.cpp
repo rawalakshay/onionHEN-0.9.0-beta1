@@ -574,14 +574,27 @@ const char *cpu_usage_mode_name(bool per_core) {
   return per_core ? "per_core" : "average";
 }
 
-int parse_overlay_style(const char *s, int def) {
-  if (streq_ci(s, "bar")) {
-    return kOverlayStyleBar;
-  }
-  if (streq_ci(s, "rows")) {
-    return kOverlayStyleRows;
+int parse_overlay_detail(const char *s, int def) {
+  for (int detail = kOverlayDetailMinimal; detail <= kOverlayDetailFull;
+       ++detail) {
+    if (streq_ci(s, overlay_detail_name(detail)))
+      return detail;
   }
   return def;
+}
+
+/* Pre-detail configs: style=bar|rows. Only read when overlay.detail is absent. */
+int parse_legacy_overlay_style(const char *s, int def) {
+  if (streq_ci(s, "bar"))
+    return kOverlayDetailCompact;
+  if (streq_ci(s, "rows"))
+    return kOverlayDetailPanel;
+  return def;
+}
+
+int parse_overlay_opacity(const char *s, int def) {
+  const int pct = parse_int_range(s, def, 0, 100);
+  return overlay_opacity_valid(pct) ? pct : def;
 }
 
 int parse_overlay_margin(const char *s, int def) {
@@ -795,8 +808,16 @@ bool apply_parser(IniParser *parser, Settings *out) {
                       kFanThresholdMaxCelsius);
   out->overlay_enabled =
       parse_bool(ini_get(parser, "overlay.enabled"), out->overlay_enabled);
-  out->overlay_background = parse_bool(
-      ini_get(parser, "overlay.background"), out->overlay_background);
+  if (const char *opacity = ini_get(parser, "overlay.opacity")) {
+    out->overlay_opacity = parse_overlay_opacity(opacity, out->overlay_opacity);
+  } else if (const char *bg = ini_get(parser, "overlay.background")) {
+    /* Pre-opacity configs: background=true|false. */
+    const bool on = parse_bool(bg, out->overlay_opacity > 0);
+    if (!on)
+      out->overlay_opacity = 0;
+    else if (out->overlay_opacity == 0)
+      out->overlay_opacity = kOverlayOpacityDefault;
+  }
   out->overlay_pos =
       parse_overlay_edge(ini_get(parser, "overlay.edge"), out->overlay_pos);
   out->overlay_align =
@@ -816,8 +837,16 @@ bool apply_parser(IniParser *parser, Settings *out) {
                                out->overlay_ip);
   out->overlay_fan = parse_bool(ini_get(parser, "overlay.show_fan_duty"),
                                 out->overlay_fan);
-  out->overlay_style =
-      parse_overlay_style(ini_get(parser, "overlay.style"), out->overlay_style);
+  if (const char *detail = ini_get(parser, "overlay.detail")) {
+    out->overlay_detail = parse_overlay_detail(detail, out->overlay_detail);
+  } else {
+    out->overlay_detail = parse_legacy_overlay_style(
+        ini_get(parser, "overlay.style"), out->overlay_detail);
+  }
+  out->overlay_brand =
+      parse_bool(ini_get(parser, "overlay.brand"), out->overlay_brand);
+  out->overlay_fps_pill =
+      parse_bool(ini_get(parser, "overlay.fps_pill"), out->overlay_fps_pill);
   out->overlay_margin = parse_overlay_margin(ini_get(parser, "overlay.margin"),
                                              out->overlay_margin);
   out->overlay_font_size = parse_overlay_font_size(
@@ -976,13 +1005,20 @@ std::string settings_serialize(const Settings &in) {
   b += "# enabled shows or hides the complete game monitor bar.\n";
   b += "# Available values: true, false\n";
   b += "enabled=" + bool_text(in.overlay_enabled) + "\n";
-  b += "# background controls the translucent panel behind the monitor bar.\n";
+  b += "# detail picks how much the monitor shows: an FPS pill, one compact\n";
+  b += "# line, a corner panel, or the panel with per-core CPU, IP and fan.\n";
+  b += "# Available values: minimal, compact, panel, full\n";
+  b += "detail=" + std::string(overlay_detail_name(in.overlay_detail)) + "\n";
+  b += "# opacity is the background opacity in percent; 0 hides it.\n";
+  b += "# Available values: 0, 40, 65, 85\n";
+  b += "opacity=" + std::to_string(in.overlay_opacity) + "\n";
+  b += "# brand shows the \"4aLse Benchmarks\" header on the panel.\n";
   b += "# Available values: true, false\n";
-  b += "background=" + bool_text(in.overlay_background) + "\n";
-  b += "# style picks the full-width bar or the corner metrics panel.\n";
-  b += "# Available values: bar, rows\n";
-  b += "style=" + std::string(overlay_style_name(in.overlay_style)) + "\n";
-  b += "# margin is the rows panel gap from the screen edges, in pixels.\n";
+  b += "brand=" + bool_text(in.overlay_brand) + "\n";
+  b += "# fps_pill also shows the FPS pill in the opposite corner.\n";
+  b += "# Available values: true, false\n";
+  b += "fps_pill=" + bool_text(in.overlay_fps_pill) + "\n";
+  b += "# margin is the gap from the screen edges, in pixels.\n";
   b += "# Available values: 0, 5, 10, 20\n";
   b += "margin=" + std::to_string(in.overlay_margin) + "\n";
   b += "# edge chooses the screen edge used by the monitor bar.\n";

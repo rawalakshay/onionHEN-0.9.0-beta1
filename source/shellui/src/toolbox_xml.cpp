@@ -719,19 +719,38 @@ void append_toolbox_display_group(ps5ui::Group& g) {
          o.toggle("id_overlay_enabled", toolbox_i18n::tr("overlay.enabled"),
                   toolbox_on("id_overlay_enabled"), std::nullopt,
                   toolbox_i18n::tr("overlay.enabled.desc"))
-             .toggle("id_overlay_background",
-                     toolbox_i18n::tr("overlay.background"),
-                     toolbox_on("id_overlay_background"), std::nullopt,
-                     toolbox_i18n::tr("overlay.background.desc"))
-             .list("id_overlay_style", toolbox_i18n::tr("overlay.style"),
+             .list("id_overlay_detail", toolbox_i18n::tr("overlay.detail"),
                    [](ps5ui::ListBuilder& L) {
-                     L.item("id_overlay_style_bar",
-                            toolbox_i18n::tr("overlay.style.bar"), "0")
-                         .item("id_overlay_style_rows",
-                               toolbox_i18n::tr("overlay.style.rows"), "1");
+                     L.item("id_overlay_detail_minimal",
+                            toolbox_i18n::tr("overlay.detail.minimal"), "0")
+                         .item("id_overlay_detail_compact",
+                               toolbox_i18n::tr("overlay.detail.compact"), "1")
+                         .item("id_overlay_detail_panel",
+                               toolbox_i18n::tr("overlay.detail.panel"), "2")
+                         .item("id_overlay_detail_full",
+                               toolbox_i18n::tr("overlay.detail.full"), "3");
                    },
-                   toolbox_i18n::tr("overlay.style.sub"),
-                   toolbox_val("id_overlay_style"))
+                   toolbox_i18n::tr("overlay.detail.sub"),
+                   toolbox_val("id_overlay_detail"))
+             .list("id_overlay_opacity", toolbox_i18n::tr("overlay.opacity"),
+                   [](ps5ui::ListBuilder& L) {
+                     for (int pct : onion::kOverlayOpacityOptions) {
+                       const std::string v = std::to_string(pct);
+                       L.item("id_overlay_opacity_" + v,
+                              pct == 0 ? toolbox_i18n::trs("overlay.opacity.off")
+                                       : v + " %",
+                              v);
+                     }
+                   },
+                   toolbox_i18n::tr("overlay.opacity.sub"),
+                   toolbox_val("id_overlay_opacity"))
+             .toggle("id_overlay_fps_pill",
+                     toolbox_i18n::tr("overlay.fps_pill"),
+                     toolbox_on("id_overlay_fps_pill"), std::nullopt,
+                     toolbox_i18n::tr("overlay.fps_pill.desc"))
+             .toggle("id_overlay_brand", toolbox_i18n::tr("overlay.brand"),
+                     toolbox_on("id_overlay_brand"), std::nullopt,
+                     toolbox_i18n::tr("overlay.brand.desc"))
              .list("id_overlay_margin", toolbox_i18n::tr("overlay.margin"),
                    [](ps5ui::ListBuilder& L) {
                      for (int px : onion::kOverlayMarginOptions) {

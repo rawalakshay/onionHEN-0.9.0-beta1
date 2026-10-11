@@ -5,8 +5,8 @@
 #include "ipc.hpp"
 #include "external_symbols.hpp"
 #include "overlay_text_metrics.hpp"
-#include "overlay_rows.hpp"
-#include "overlay_rows_renderer.hpp"
+#include "overlay_scene.hpp"
+#include "overlay_scene_renderer.hpp"
 #include <onion/fps_sample.h>
 #include <onion/net.h>
 #include <onion/settings.hpp>
@@ -172,25 +172,36 @@ constexpr int kOverlayInitDelayFrames = 30;
 constexpr int kOverlayUpdateIntervalFrames = 60;
 constexpr int kFpsUpdateIntervalFrames = 2;
 
-constexpr int kRowsUpdateIntervalFrames = 4;
+constexpr int kSceneUpdateIntervalFrames = 4;
 
 constexpr int kClockIdRealtime = 4;
 constexpr int kVmSystem = 1;
 constexpr int kPageTableRam = 1;
 constexpr int kPageTableVram = 2;
 
-namespace rows = onion::overlay::rows;
+namespace scene = onion::overlay::scene;
 
-/* Latest numeric readings (filled for both styles) and the rows-style trends. */
-rows::Readings g_rows_readings;
-rows::Histories g_rows_history;
-rows::FpsStats g_fps_stats;
+/* Latest numeric readings and the frame-time history the scene draws. */
+scene::Readings g_readings;
+scene::Histories g_history;
+scene::FpsStats g_fps_stats;
+/* 20 buckets × 250 ms: a new frame cap must hold ~5 s before it sticks. */
+scene::TargetTracker g_fps_target{20};
+/* Exact per-bucket rate from the daemon's running frame count. */
+scene::FrameCountWindow g_frame_window;
+/* Stand-in rate for a bucket with no frames at all (a 2 s frame time). */
+constexpr float kFrozenBucketFps = 0.5f;
 /* The game the FPS stats belong to (title + pid, so a relaunch starts over). */
 std::string g_fps_title;
 int32_t g_fps_pid = 0;
 bool g_fps_tracking = false;
 int64_t g_fps_start_s = 0;
 int64_t g_fps_last_valid_s = 0;
+int64_t g_fps_last_bucket_ms = 0;
+/* Daemon publish counter of the last sample folded into the stats; the
+ * daemon and this loop both run near 30 Hz, so the same sample can be read
+ * twice or skipped, and only a new seq is a new measurement. */
+uint32_t g_fps_last_seq = 0;
 
 /* A dropped sample (loading screen, brief stall) keeps the last reading this
  * long before the FPS section collapses to "NO GAME DETECTED". */
@@ -199,8 +210,42 @@ constexpr int64_t kFpsGraceSeconds = 2;
  * back counts as a new session. */
 constexpr int64_t kFpsSessionEndSeconds = 10;
 
-bool rows_style() {
-  return g_settings.overlay_style == onion::kOverlayStyleRows;
+bool detail_is(int detail) { return g_settings.overlay_detail == detail; }
+
+/* The pill (minimal level or companion) always shows FPS; Full always shows
+ * CPU, IP and fan. */
+bool wants_fps() {
+  return g_settings.overlay_fps || g_settings.overlay_fps_pill ||
+         detail_is(onion::kOverlayDetailMinimal);
+}
+bool wants_other_metrics() { return !detail_is(onion::kOverlayDetailMinimal); }
+bool wants_cpu() {
+  return wants_other_metrics() &&
+         (g_settings.overlay_cpu || g_settings.all_cpu_usage ||
+          detail_is(onion::kOverlayDetailFull));
+}
+bool wants_gpu() { return wants_other_metrics() && g_settings.overlay_gpu; }
+bool wants_ram() { return wants_other_metrics() && g_settings.overlay_ram; }
+bool wants_ip() {
+  return wants_other_metrics() &&
+         (g_settings.overlay_ip || detail_is(onion::kOverlayDetailFull));
+}
+bool wants_fan() {
+  return wants_other_metrics() &&
+         (g_settings.overlay_fan || detail_is(onion::kOverlayDetailFull));
+}
+
+scene::Detail scene_detail() {
+  switch (g_settings.overlay_detail) {
+  case onion::kOverlayDetailMinimal:
+    return scene::Detail::Minimal;
+  case onion::kOverlayDetailPanel:
+    return scene::Detail::Panel;
+  case onion::kOverlayDetailFull:
+    return scene::Detail::Full;
+  default:
+    return scene::Detail::Compact;
+  }
 }
 
 /* Clock id 4 is CLOCK_MONOTONIC on the PS5 (FreeBSD numbering). */
@@ -208,6 +253,12 @@ int64_t monotonic_seconds() {
   OrbisKernelTimespec ts{};
   sceKernelClockGettime(kClockIdRealtime, &ts);
   return ts.tv_sec;
+}
+
+int64_t monotonic_ms() {
+  OrbisKernelTimespec ts{};
+  sceKernelClockGettime(kClockIdRealtime, &ts);
+  return ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
 }
 
 MonoObject *find_label(const char *widget_name) {
@@ -469,10 +520,10 @@ bool init_overlay_once(unsigned int idle_tid[kCpuCores]) {
   if (!g_settings.overlay_enabled)
     return true;
 
-  if (rows_style()) {
-    /* Widgets are created on the first rows_render(). */
+  if (!kOverlayLegacyBarFallback) {
+    /* Widgets are created on the first scene_render(). */
     RemoveGameWidget(REMOVE_ALL_OVERLAYS);
-    overlay_rows_remove_all();
+    overlay_scene_remove_all();
     return true;
   }
 
@@ -529,7 +580,7 @@ bool init_overlay_once(unsigned int idle_tid[kCpuCores]) {
 /** Sample CPU into Usage[]; formats CPU_USAGE. Returns false if sampling skipped/failed. */
 bool sample_cpu_usage(unsigned int idle_tid[kCpuCores], int& current_bank,
                       char* cpu_usage, size_t cpu_usage_sz) {
-  if (!g_settings.overlay_cpu && !g_settings.all_cpu_usage)
+  if (!wants_cpu())
     return false;
 
   /*
@@ -596,7 +647,7 @@ void update_overlay_metrics(unsigned int idle_tid[kCpuCores], int& current_bank,
   if (!g_settings.overlay_enabled)
     return;
 
-  rows::Readings &r = g_rows_readings;
+  scene::Readings &r = g_readings;
   r.cpu_valid = sample_cpu_usage(idle_tid, current_bank, cpu_usage, cpu_usage_sz);
   if (r.cpu_valid) {
     float avg = 0.f;
@@ -610,7 +661,7 @@ void update_overlay_metrics(unsigned int idle_tid[kCpuCores], int& current_bank,
       r.cpu_valid = false;
   }
 
-  if (g_settings.overlay_ram) {
+  if (wants_ram()) {
     r.ram_valid = Get_Page_Table_Stats(kVmSystem, kPageTableRam, &RAM.Used,
                                        &RAM.Free, &RAM.Total);
     snprintf(ram_str, ram_sz, "%u MB", RAM.Used);
@@ -618,7 +669,7 @@ void update_overlay_metrics(unsigned int idle_tid[kCpuCores], int& current_bank,
     r.ram_total_mb = RAM.Total;
   }
 
-  if (g_settings.overlay_gpu) {
+  if (wants_gpu()) {
     int soc_temp = 0;
     r.soc_temp_valid = sceKernelGetSocSensorTemperature(0, &soc_temp) == 0;
     r.soc_temp = soc_temp;
@@ -632,19 +683,19 @@ void update_overlay_metrics(unsigned int idle_tid[kCpuCores], int& current_bank,
     snprintf(gpu_usage, gpu_usage_sz, "%.0f%%", VRAM.Percentage);
   }
 
-  if (g_settings.overlay_ip) {
+  if (wants_ip()) {
     (void)onion_net_get_ip_address(ip_address, ip_sz);
     r.ip = ip_address;
   }
 
-  if (g_settings.overlay_cpu || g_settings.all_cpu_usage) {
+  if (wants_cpu()) {
     int cpu_t = 0;
     r.cpu_temp_valid = sceKernelGetCpuTemperature(&cpu_t) == 0;
     r.cpu_temp = cpu_t;
     snprintf(cpu_temp, cpu_temp_sz, "%dC", cpu_t);
   }
 
-  if (g_settings.overlay_fan) {
+  if (wants_fan()) {
     uint16_t duty = 0;
     uint64_t chassis = 0;
     if (sceKernelGetCurrentFanDuty &&
@@ -658,36 +709,16 @@ void update_overlay_metrics(unsigned int idle_tid[kCpuCores], int& current_bank,
       r.fan_valid = false;
     }
   }
-
-  if (rows_style()) {
-    /* One trend point per metrics refresh (~1 s). */
-    rows::Histories &h = g_rows_history;
-    if (r.cpu_valid)
-      h.cpu.push(r.cpu_avg);
-    if (r.cpu_temp_valid)
-      h.cpu_temp.push(static_cast<float>(r.cpu_temp));
-    if (r.gpu_valid && r.vram_total_mb > 0)
-      h.vram.push(100.0f * r.vram_used_mb / r.vram_total_mb);
-    if (r.soc_temp_valid)
-      h.soc_temp.push(static_cast<float>(r.soc_temp));
-    if (r.ram_valid && r.ram_total_mb > 0)
-      h.ram.push(100.0f * r.ram_used_mb / r.ram_total_mb);
-    if (r.fps_valid) {
-      h.fps.push(r.fps);
-      /* Window stats once per refresh, not every frame (nth_element). */
-      r.fps_avg = g_fps_stats.average();
-      r.fps_low = g_fps_stats.low_1pct();
-    }
-  }
 }
 
-/** Rows style: read the daemon's FPS sample and keep per-game stats. */
-void rows_sample_fps() {
-  rows::Readings &r = g_rows_readings;
+/** Read the daemon's FPS sample and keep per-game stats and the frame-time
+ *  history (one bucket per scene::kBucketMs). */
+void sample_fps() {
+  scene::Readings &r = g_readings;
   const int64_t now = monotonic_seconds();
   OnionFpsSample sample{};
-  if (!g_settings.overlay_fps || onion_fps_read(&sample) != 0 ||
-      !sample.valid || sample.fps < 1.f) {
+  if (!wants_fps() || onion_fps_read(&sample) != 0 || !sample.valid ||
+      sample.fps < 1.f) {
     if (g_fps_tracking && now - g_fps_last_valid_s > kFpsSessionEndSeconds)
       g_fps_tracking = false;
     if (r.fps_valid && now - g_fps_last_valid_s <= kFpsGraceSeconds) {
@@ -703,33 +734,73 @@ void rows_sample_fps() {
   const std::string title(sample.title_id,
                           strnlen(sample.title_id, sizeof(sample.title_id)));
   if (!g_fps_tracking || title != g_fps_title || sample.pid != g_fps_pid) {
-    /* New game or relaunch: average, 1% low, trend and clock start over. */
+    /* New game or relaunch: average, low, graph, target and clock restart. */
     g_fps_title = title;
     g_fps_pid = sample.pid;
     g_fps_tracking = true;
     g_fps_start_s = now;
     g_fps_stats.clear();
-    g_rows_history.fps.clear();
+    g_history.frame_ms.clear();
+    g_fps_target.reset();
+    g_frame_window.reset();
+    g_fps_last_bucket_ms = 0;
+    r.fps = sample.fps;
     r.fps_avg = sample.fps;
     r.fps_low = sample.fps;
+    r.fps_target = scene::infer_target(sample.fps);
   }
   g_fps_last_valid_s = now;
-  g_fps_stats.push(sample.fps);
+  /* Daemons that publish the running frame count give exact per-bucket
+   * rates; older ones only the smoothed rate, sampled per new publish. */
+  const bool frame_count = sample.ext_layout == ONION_FPS_EXT_FRAMES;
+  if (!frame_count) {
+    if (sample.seq != g_fps_last_seq) {
+      g_fps_last_seq = sample.seq;
+      g_fps_stats.push(sample.fps);
+    }
+    r.fps = sample.fps;
+  }
   r.fps_valid = true;
-  r.fps = sample.fps;
   r.title_id = title;
   r.session_s = static_cast<int>(now - g_fps_start_s);
+
+  const int64_t now_ms = monotonic_ms();
+  if (now_ms - g_fps_last_bucket_ms >= scene::kBucketMs) {
+    g_fps_last_bucket_ms = now_ms;
+    float bucket_fps = sample.fps;
+    if (frame_count) {
+      const float exact = g_frame_window.take(
+          sample.ext_epoch, sample.frames_milli, sample.frames_mono_ns);
+      if (exact >= 0.0f) {
+        /* A frozen bucket (0 frames) still has to show as a stutter. */
+        bucket_fps = std::max(exact, kFrozenBucketFps);
+        g_fps_stats.push(bucket_fps);
+      } else if (g_fps_stats.size() == 0) {
+        g_fps_stats.push(sample.fps); /* first bucket: seed the stats */
+      }
+      r.fps = bucket_fps;
+    }
+    if (bucket_fps > 0.0f)
+      g_history.frame_ms.push(1000.0f / bucket_fps);
+    /* Window stats at bucket rate, not every read (nth_element). */
+    r.fps_avg = g_fps_stats.average();
+    r.fps_low = g_fps_stats.low_1pct();
+    r.fps_target = g_fps_target.update(r.fps_avg);
+  }
 }
 
-void rows_render() {
-  rows::Readings &r = g_rows_readings;
-  rows::Options o{};
+void scene_render() {
+  scene::Readings &r = g_readings;
+  scene::Options o{};
   o.screen_w = g_overlay_layout.screen_w;
   o.screen_h = g_overlay_layout.screen_h;
   o.edge = onion::overlay::bar_edge_from_pos(g_settings.overlay_pos);
   o.align = onion::overlay::bar_align_from_value(g_settings.overlay_align);
+  o.detail = scene_detail();
   o.font_pt = onion::overlay_font_pt(g_settings.overlay_font_size);
-  o.background = g_settings.overlay_background;
+  o.opacity = g_settings.overlay_opacity;
+  o.brand = g_settings.overlay_brand;
+  o.fps_pill = g_settings.overlay_fps_pill;
   o.margin = static_cast<float>(g_settings.overlay_margin);
   o.show_fps = g_settings.overlay_fps;
   o.show_cpu = g_settings.overlay_cpu;
@@ -739,16 +810,19 @@ void rows_render() {
   o.show_fan = g_settings.overlay_fan;
   o.per_core_cpu = g_settings.all_cpu_usage;
   o.order = g_settings.overlay_order;
-  overlay_rows_apply(rows::build_scene(o, r, g_rows_history));
+  overlay_scene_apply(scene::build_scene(o, r, g_history));
 }
 
 } // namespace
 
-void overlay_rows_reset_state() {
-  g_rows_history = rows::Histories{};
+void overlay_scene_reset_state() {
+  g_history = scene::Histories{};
   g_fps_stats.clear();
+  g_fps_target.reset();
+  g_frame_window.reset();
   g_fps_tracking = false;
-  g_rows_readings.fps_valid = false;
+  g_fps_last_bucket_ms = 0;
+  g_readings.fps_valid = false;
 }
 
 void OnRender_Hook(MonoObject* instance) {
@@ -766,7 +840,7 @@ void OnRender_Hook(MonoObject* instance) {
   static int current_bank = 0;
   static int frames_until_update = 0;
   static int frames_until_fps = 0;
-  static int frames_until_rows = 0;
+  static int frames_until_scene = 0;
   static int frames_until_init = kOverlayInitDelayFrames;
   static char gpu_temp[32] = {};
   static char gpu_usage[32] = {};
@@ -801,21 +875,21 @@ void OnRender_Hook(MonoObject* instance) {
     frames_until_update--;
   }
 
-  if (rows_style()) {
+  if (!kOverlayLegacyBarFallback) {
     if (frames_until_fps <= 0) {
-      rows_sample_fps();
+      sample_fps();
       frames_until_fps = kFpsUpdateIntervalFrames;
     } else {
       frames_until_fps--;
     }
-    if (frames_until_rows <= 0) {
+    if (frames_until_scene <= 0) {
       if (g_settings.overlay_enabled)
-        rows_render();
+        scene_render();
       else
-        overlay_rows_remove_all();
-      frames_until_rows = kRowsUpdateIntervalFrames;
+        overlay_scene_remove_all();
+      frames_until_scene = kSceneUpdateIntervalFrames;
     } else {
-      frames_until_rows--;
+      frames_until_scene--;
     }
   } else if (frames_until_fps <= 0) {
     if (g_settings.overlay_fps)
