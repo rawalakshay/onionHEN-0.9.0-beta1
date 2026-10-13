@@ -687,14 +687,6 @@ inline std::string fmt_watts(float w) {
 inline std::string fmt_gb(int mb) {
   return detail::fmt("%.1f", static_cast<double>(std::max(mb, 0)) / 1024.0);
 }
-/** MB → "16" or "12.3" (GB; whole numbers drop the decimal). */
-inline std::string fmt_gb_total(int mb) {
-  const double gb = static_cast<double>(std::max(mb, 0)) / 1024.0;
-  const double rounded = std::round(gb * 10.0) / 10.0;
-  if (std::fabs(rounded - std::round(rounded)) < 0.05)
-    return detail::fmt("%.0f", rounded);
-  return detail::fmt("%.1f", rounded);
-}
 
 namespace detail {
 
@@ -931,7 +923,7 @@ inline std::vector<Bar> frame_bars(const Histories &h, int target, int n) {
 }
 
 /* ------------------------------------------------------------------ */
-/* System row: CPU 42% 58°  |  GPU 61° 74 W  |  MEM 9.6 GB   / 15.6     */
+/* System row: CPU 42% 58°  |  GPU 61° 74 W  |  MEMORY 9.6 GB            */
 /* ------------------------------------------------------------------ */
 
 /**
@@ -1009,13 +1001,8 @@ inline float system_block(Builder &b, const Metrics &m, float x0, float iw,
                                       1.0f)),
            m.sys_bar_h, kFill);
 
-  /* MEM: used GB; the total sits in the heading row so the value row never
-   * outgrows the column. */
-  heading("id_osc_mem_l", cx[2], "MEM");
-  if (s.ram_valid)
-    b.text("id_osc_mem_tot", cx[2], cwl, hy, m.caption_h,
-           "/ " + fmt_gb_total(s.ram_total_mb), kLabel, m.head_pt,
-           kWeightLabel, TextAlign::Right, m.label_pt);
+  /* MEM: used GB; the bar shows it against the total. */
+  heading("id_osc_mem_l", cx[2], "MEMORY");
   const float mem_pct =
       s.ram_valid ? 100.0f * static_cast<float>(s.ram_used_mb) /
                         static_cast<float>(s.ram_total_mb)
@@ -1130,7 +1117,7 @@ inline Scene build_compact(const Options &opt, const Readings &r,
           {"100\xC2\xB0"}, s.power_valid ? fmt_watts(s.gpu_power_w) : kDash,
           kLabel, "_t");
     sep("id_osc_sep3");
-    group("mem", "MEM", s.ram_valid ? fmt_gb(s.ram_used_mb) : kDash, kText,
+    group("mem", "MEMORY", s.ram_valid ? fmt_gb(s.ram_used_mb) : kDash, kText,
           {"88.8"}, "GB", kLabel, "_u");
   }
   x += std::round(14.0f * m.k);

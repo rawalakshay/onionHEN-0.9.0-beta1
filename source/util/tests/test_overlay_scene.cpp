@@ -413,7 +413,12 @@ int test_compact_strip(void) {
   TEST_ASSERT_STREQ("48.0", text_of(s, "id_osc_low_v"));
   TEST_ASSERT_EQ_INT(sc::kStripBars, count_rect_prefix(s, "id_osc_sbar"));
   TEST_ASSERT_TRUE(contained(s));
-  TEST_ASSERT_TRUE(s.w < kW * 0.5f);
+  /* With the system groups the strip passes half the screen; what matters is
+   * that it fits between the margins at the largest font. */
+  sc::Options big = o;
+  big.font_pt = 24;
+  TEST_ASSERT_TRUE(sc::build_scene(big, live_readings_with_sys(), flat_history()).w <=
+                   kW - 2.0f * o.margin);
   TEST_ASSERT_EQ_INT(as_int((kW - s.w) * 0.5f), as_int(s.x));
   TEST_ASSERT_EQ_INT(10, as_int(s.y));
 
@@ -560,8 +565,6 @@ int test_formatting(void) {
   TEST_ASSERT_STREQ("58\xC2\xB0", sc::fmt_temp(58).c_str());
   TEST_ASSERT_STREQ("65 W", sc::fmt_watts(65.4f).c_str());
   TEST_ASSERT_STREQ("9.6", sc::fmt_gb(9830).c_str());
-  TEST_ASSERT_STREQ("16", sc::fmt_gb_total(16384).c_str());
-  TEST_ASSERT_STREQ("15.6", sc::fmt_gb_total(16000).c_str());
   return 0;
 }
 
@@ -577,8 +580,7 @@ int test_system_row_panel(void) {
   TEST_ASSERT_STREQ("GPU", text_of(s, "id_osc_gpu_l"));
   TEST_ASSERT_STREQ("70\xC2\xB0", text_of(s, "id_osc_gpu_v"));
   TEST_ASSERT_STREQ("65 W", text_of(s, "id_osc_gpu_t"));
-  TEST_ASSERT_STREQ("MEM", text_of(s, "id_osc_mem_l"));
-  TEST_ASSERT_STREQ("/ 15.6", text_of(s, "id_osc_mem_tot"));
+  TEST_ASSERT_STREQ("MEMORY", text_of(s, "id_osc_mem_l"));
   TEST_ASSERT_STREQ("9.6", text_of(s, "id_osc_mem_v"));
   TEST_ASSERT_STREQ("GB", text_of(s, "id_osc_mem_u"));
 
@@ -598,14 +600,12 @@ int test_system_row_panel(void) {
   TEST_ASSERT_EQ_INT(as_int(std::round(gtrack->w * 65.0f / sc::kGpuPowerScaleW)),
                      as_int(gfill->w));
 
-  /* Memory bar is used / total; the total hugs the column's right edge. */
+  /* Memory bar is used / total. */
   const sc::Rect *mtrack = find_rect(s, "id_osc_mem_track");
   const sc::Rect *mfill = find_rect(s, "id_osc_mem_fill");
-  const sc::Text *mtot = find_text(s, "id_osc_mem_tot");
-  TEST_ASSERT_TRUE(mtrack && mfill && mtot);
+  TEST_ASSERT_TRUE(mtrack && mfill);
   TEST_ASSERT_EQ_INT(as_int(std::round(mtrack->w * 9830.0f / 16000.0f)),
                      as_int(mfill->w));
-  TEST_ASSERT_EQ_INT(as_int(mtrack->x + mtrack->w), as_int(mtot->x + mtot->w));
   TEST_ASSERT_TRUE(same_color(sc::kFill, mfill->color));
 
   /* The row sits under the frame-time chart and adds 80 px at 18 pt. */
@@ -662,7 +662,6 @@ int test_system_row_invalid(void) {
   TEST_ASSERT_STREQ(kDash, text_of(s, "id_osc_gpu_t"));
   TEST_ASSERT_STREQ(kDash, text_of(s, "id_osc_mem_v"));
   TEST_ASSERT_STREQ("GB", text_of(s, "id_osc_mem_u"));
-  TEST_ASSERT_TRUE(find_text(s, "id_osc_mem_tot") == nullptr);
   TEST_ASSERT_EQ_INT(0, count_rect_prefix(s, "id_osc_cpu_seg"));
   TEST_ASSERT_TRUE(find_rect(s, "id_osc_gpu_fill") == nullptr);
   TEST_ASSERT_TRUE(find_rect(s, "id_osc_mem_fill") == nullptr);
@@ -722,7 +721,7 @@ int test_system_row_compact(void) {
   TEST_ASSERT_STREQ("GPU", text_of(s, "id_osc_sgpu_l"));
   TEST_ASSERT_STREQ("70\xC2\xB0", text_of(s, "id_osc_sgpu_v"));
   TEST_ASSERT_STREQ("65 W", text_of(s, "id_osc_sgpu_t"));
-  TEST_ASSERT_STREQ("MEM", text_of(s, "id_osc_smem_l"));
+  TEST_ASSERT_STREQ("MEMORY", text_of(s, "id_osc_smem_l"));
   TEST_ASSERT_STREQ("9.6", text_of(s, "id_osc_smem_v"));
   TEST_ASSERT_STREQ("GB", text_of(s, "id_osc_smem_u"));
   TEST_ASSERT_EQ_INT(3, count_rect_prefix(s, "id_osc_sep") - 1); /* sep0 + 3 */
