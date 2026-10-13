@@ -143,6 +143,8 @@
     "overlay.brand.desc": "Zobrazit „4aLse Benchmarks“ v horní části panelu",
     "overlay.fps_pill": "Štítek FPS v druhém rohu",
     "overlay.fps_pill.desc": "Zobrazit také malé počítadlo FPS v protějším rohu",
+    "overlay.system": "Systémový řádek (CPU, GPU, paměť)",
+    "overlay.system.desc": "Pod grafy zobrazit vytížení a teplotu CPU, teplotu SoC a příkon GPU a využití paměti",
     "overlay.gpu": "GPU",
     "overlay.gpu.desc": "Zobrazit teplotu GPU a využití VRAM",
     "overlay.fps": "FPS",

@@ -374,6 +374,8 @@ struct Settings {
   /** Also show the FPS pill in the opposite top/bottom corner (compact,
    *  panel and full; the minimal level already is the pill). */
   bool overlay_fps_pill = false;
+  /** CPU / GPU / memory row under the charts (compact, panel and full). */
+  bool overlay_system = true;
   /** Edge gap in pixels; one of kOverlayMarginOptions. */
   int overlay_margin = kOverlayMarginDefault;
   /** 0 small, 1 medium, 2 large. Applies to the whole monitor bar. */

@@ -143,6 +143,8 @@
     "overlay.brand.desc": "„4aLse Benchmarks” megjelenítése a panel tetején",
     "overlay.fps_pill": "FPS-címke a másik sarokban",
     "overlay.fps_pill.desc": "A kis FPS-számláló megjelenítése a szemközti sarokban is",
+    "overlay.system": "Rendszersor (CPU, GPU, memória)",
+    "overlay.system.desc": "CPU-terhelés és -hőmérséklet, SoC-hőmérséklet és GPU-teljesítményfelvétel, valamint memóriahasználat megjelenítése a grafikonok alatt",
     "overlay.gpu": "GPU",
     "overlay.gpu.desc": "GPU-hőmérséklet és VRAM-használat megjelenítése",
     "overlay.fps": "FPS",

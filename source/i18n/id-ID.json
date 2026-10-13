@@ -143,6 +143,8 @@
     "overlay.brand.desc": "Tampilkan \"4aLse Benchmarks\" di bagian atas panel",
     "overlay.fps_pill": "Label FPS di sudut lain",
     "overlay.fps_pill.desc": "Tampilkan juga penghitung FPS kecil di sudut seberang",
+    "overlay.system": "Baris sistem (CPU, GPU, memori)",
+    "overlay.system.desc": "Tampilkan beban dan suhu CPU, suhu SoC dan daya GPU, serta penggunaan memori di bawah grafik",
     "overlay.gpu": "GPU",
     "overlay.gpu.desc": "Tampilkan suhu GPU dan pemakaian VRAM",
     "overlay.fps": "FPS",

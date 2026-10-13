@@ -202,6 +202,7 @@ bool resolve_native_symbols(pid_t pid) {
   KERNEL_DLSYM(libkernelsys, sceKernelGetAppInfo);
   KERNEL_DLSYM(libkernelsys, sceKernelGetProcessName);
   KERNEL_DLSYM(libkernelsys, sceKernelGetCurrentFanDuty);
+  KERNEL_DLSYM(libkernelsys, sceKernelGetSocPowerConsumption);
 
   /* libonion_platform must not CALL sceKernelSendNotificationRequest by name —
    * here that symbol is a dlsym'd *function pointer*. Register a trampoline. */

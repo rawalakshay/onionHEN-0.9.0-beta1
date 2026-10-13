@@ -143,6 +143,8 @@
     "overlay.brand.desc": "Toon \"4aLse Benchmarks\" boven in het paneel",
     "overlay.fps_pill": "FPS-label in de andere hoek",
     "overlay.fps_pill.desc": "Toon ook de kleine FPS-teller in de tegenoverliggende hoek",
+    "overlay.system": "Systeemregel (CPU, GPU, geheugen)",
+    "overlay.system.desc": "CPU-belasting en -temperatuur, SoC-temperatuur en GPU-vermogen en geheugengebruik onder de grafieken tonen",
     "overlay.gpu": "GPU",
     "overlay.gpu.desc": "GPU-temperatuur en VRAM-gebruik tonen",
     "overlay.fps": "FPS",

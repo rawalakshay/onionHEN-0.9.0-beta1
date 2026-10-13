@@ -143,6 +143,8 @@
     "overlay.brand.desc": "Показывать «4aLse Benchmarks» вверху панели",
     "overlay.fps_pill": "Значок FPS в другом углу",
     "overlay.fps_pill.desc": "Также показывать маленький счётчик FPS в противоположном углу",
+    "overlay.system": "Строка системы (CPU, GPU, память)",
+    "overlay.system.desc": "Показывать под графиками нагрузку и температуру CPU, температуру SoC и мощность GPU, а также использование памяти",
     "overlay.gpu": "GPU",
     "overlay.gpu.desc": "Температура GPU и занятость видеопамяти",
     "overlay.fps": "FPS",

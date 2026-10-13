@@ -82,6 +82,7 @@ static int test_defaults_and_serialize_keys(void) {
   TEST_ASSERT_TRUE(text.find("opacity=65") != std::string::npos);
   TEST_ASSERT_TRUE(text.find("brand=false") != std::string::npos);
   TEST_ASSERT_TRUE(text.find("fps_pill=false") != std::string::npos);
+  TEST_ASSERT_TRUE(text.find("system=true") != std::string::npos);
   TEST_ASSERT_TRUE(
       text.find("exact_title_ids=ITEM00001,NPXS39041,PKGI13337,PKGI12345,"
                 "TOOL00001") != std::string::npos);
@@ -163,6 +164,7 @@ static int test_full_schema_roundtrip(void) {
   in.overlay_detail = onion::kOverlayDetailFull;
   in.overlay_brand = true;
   in.overlay_fps_pill = true;
+  in.overlay_system = false;
   in.overlay_margin = 20;
   in.overlay_font_size = onion::kOverlayFontLarge;
   in.overlay_order = {onion::kOverlayMetricFan, onion::kOverlayMetricFps,
@@ -207,6 +209,7 @@ static int test_full_schema_roundtrip(void) {
   TEST_ASSERT_EQ_INT(in.overlay_detail, out.overlay_detail);
   TEST_ASSERT_TRUE(out.overlay_brand == in.overlay_brand);
   TEST_ASSERT_TRUE(out.overlay_fps_pill == in.overlay_fps_pill);
+  TEST_ASSERT_TRUE(out.overlay_system == in.overlay_system);
   TEST_ASSERT_EQ_INT(in.overlay_margin, out.overlay_margin);
   TEST_ASSERT_EQ_INT(in.overlay_font_size, out.overlay_font_size);
   TEST_ASSERT_EQ_INT(in.overlay_order[0], out.overlay_order[0]);

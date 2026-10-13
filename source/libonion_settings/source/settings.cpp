@@ -847,6 +847,8 @@ bool apply_parser(IniParser *parser, Settings *out) {
       parse_bool(ini_get(parser, "overlay.brand"), out->overlay_brand);
   out->overlay_fps_pill =
       parse_bool(ini_get(parser, "overlay.fps_pill"), out->overlay_fps_pill);
+  out->overlay_system =
+      parse_bool(ini_get(parser, "overlay.system"), out->overlay_system);
   out->overlay_margin = parse_overlay_margin(ini_get(parser, "overlay.margin"),
                                              out->overlay_margin);
   out->overlay_font_size = parse_overlay_font_size(
@@ -1018,6 +1020,9 @@ std::string settings_serialize(const Settings &in) {
   b += "# fps_pill also shows the FPS pill in the opposite corner.\n";
   b += "# Available values: true, false\n";
   b += "fps_pill=" + bool_text(in.overlay_fps_pill) + "\n";
+  b += "# system shows the CPU, GPU and memory row under the charts.\n";
+  b += "# Available values: true, false\n";
+  b += "system=" + bool_text(in.overlay_system) + "\n";
   b += "# margin is the gap from the screen edges, in pixels.\n";
   b += "# Available values: 0, 5, 10, 20\n";
   b += "margin=" + std::to_string(in.overlay_margin) + "\n";

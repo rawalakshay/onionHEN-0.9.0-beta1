@@ -44,6 +44,35 @@ sc::Readings live_readings() {
   return r;
 }
 
+/* A plausible system row: mixed core loads, warm but fine temperatures. */
+sc::SystemReadings live_sys() {
+  sc::SystemReadings s{};
+  s.cpu_valid = true;
+  const float cores[8] = {10, 20, 30, 40, 50, 60, 70, 90};
+  float sum = 0.0f;
+  for (int i = 0; i < 8; ++i) {
+    s.cpu_core[i] = cores[i];
+    sum += cores[i];
+  }
+  s.cpu_pct = sum / 8.0f; /* 46.25 */
+  s.cpu_temp_valid = true;
+  s.cpu_temp = 58;
+  s.soc_temp_valid = true;
+  s.soc_temp = 70;
+  s.power_valid = true;
+  s.gpu_power_w = 65.0f;
+  s.ram_valid = true;
+  s.ram_used_mb = 9830;
+  s.ram_total_mb = 16000;
+  return s;
+}
+
+sc::Readings live_readings_with_sys() {
+  sc::Readings r = live_readings();
+  r.sys = live_sys();
+  return r;
+}
+
 /* Full charts: 40 FPS buckets and 90 frame samples at a steady rate. */
 sc::Histories flat_history(float fps = 60.0f) {
   sc::Histories h{};
@@ -526,23 +555,207 @@ int test_formatting(void) {
   TEST_ASSERT_STREQ("59.6", sc::fmt_fps1(59.6f).c_str());
   TEST_ASSERT_STREQ("16.7", sc::fmt_ms(1000.0f / 60.0f).c_str());
   TEST_ASSERT_STREQ("999.9", sc::fmt_ms(5000.0f).c_str());
+  TEST_ASSERT_STREQ("46%", sc::fmt_pct(46.25f).c_str());
+  TEST_ASSERT_STREQ("100%", sc::fmt_pct(140.0f).c_str());
+  TEST_ASSERT_STREQ("58\xC2\xB0", sc::fmt_temp(58).c_str());
+  TEST_ASSERT_STREQ("65 W", sc::fmt_watts(65.4f).c_str());
+  TEST_ASSERT_STREQ("9.6", sc::fmt_gb(9830).c_str());
+  TEST_ASSERT_STREQ("16", sc::fmt_gb_total(16384).c_str());
+  TEST_ASSERT_STREQ("15.6", sc::fmt_gb_total(16000).c_str());
+  return 0;
+}
+
+/* Panel: three columns under the charts with the values, the core
+ * segments, the power and memory bars and the total in the heading row. */
+int test_system_row_panel(void) {
+  const sc::Options o = base_options();
+  const sc::Scene s = sc::build_scene(o, live_readings_with_sys(), flat_history());
+  TEST_ASSERT_TRUE(find_rect(s, "id_osc_sys_rule") != nullptr);
+  TEST_ASSERT_STREQ("CPU", text_of(s, "id_osc_cpu_l"));
+  TEST_ASSERT_STREQ("46%", text_of(s, "id_osc_cpu_v"));
+  TEST_ASSERT_STREQ("58\xC2\xB0", text_of(s, "id_osc_cpu_t"));
+  TEST_ASSERT_STREQ("GPU", text_of(s, "id_osc_gpu_l"));
+  TEST_ASSERT_STREQ("70\xC2\xB0", text_of(s, "id_osc_gpu_v"));
+  TEST_ASSERT_STREQ("65 W", text_of(s, "id_osc_gpu_t"));
+  TEST_ASSERT_STREQ("MEM", text_of(s, "id_osc_mem_l"));
+  TEST_ASSERT_STREQ("/ 15.6", text_of(s, "id_osc_mem_tot"));
+  TEST_ASSERT_STREQ("9.6", text_of(s, "id_osc_mem_v"));
+  TEST_ASSERT_STREQ("GB", text_of(s, "id_osc_mem_u"));
+
+  /* Eight core segments; the 90 % core is warn, the 10 % core neutral. */
+  TEST_ASSERT_EQ_INT(8, count_rect_prefix(s, "id_osc_cpu_seg"));
+  const sc::Rect *seg0 = find_rect(s, "id_osc_cpu_seg0");
+  const sc::Rect *seg7 = find_rect(s, "id_osc_cpu_seg7");
+  TEST_ASSERT_TRUE(seg0 && seg7);
+  TEST_ASSERT_TRUE(same_color(sc::kFill, seg0->color));
+  TEST_ASSERT_TRUE(same_color(sc::kWarn, seg7->color));
+  TEST_ASSERT_TRUE(seg7->w > seg0->w);
+
+  /* GPU bar is power over the fixed scale. */
+  const sc::Rect *gtrack = find_rect(s, "id_osc_gpu_track");
+  const sc::Rect *gfill = find_rect(s, "id_osc_gpu_fill");
+  TEST_ASSERT_TRUE(gtrack && gfill);
+  TEST_ASSERT_EQ_INT(as_int(std::round(gtrack->w * 65.0f / sc::kGpuPowerScaleW)),
+                     as_int(gfill->w));
+
+  /* Memory bar is used / total; the total hugs the column's right edge. */
+  const sc::Rect *mtrack = find_rect(s, "id_osc_mem_track");
+  const sc::Rect *mfill = find_rect(s, "id_osc_mem_fill");
+  const sc::Text *mtot = find_text(s, "id_osc_mem_tot");
+  TEST_ASSERT_TRUE(mtrack && mfill && mtot);
+  TEST_ASSERT_EQ_INT(as_int(std::round(mtrack->w * 9830.0f / 16000.0f)),
+                     as_int(mfill->w));
+  TEST_ASSERT_EQ_INT(as_int(mtrack->x + mtrack->w), as_int(mtot->x + mtot->w));
+  TEST_ASSERT_TRUE(same_color(sc::kFill, mfill->color));
+
+  /* The row sits under the frame-time chart and adds 80 px at 18 pt. */
+  const sc::Rect *tbase = find_rect(s, "id_osc_tbase");
+  const sc::Rect *rule = find_rect(s, "id_osc_sys_rule");
+  TEST_ASSERT_TRUE(tbase && rule && rule->y > tbase->y);
+  sc::Options off = o;
+  off.show_system = false;
+  const sc::Scene without = sc::build_scene(off, live_readings_with_sys(), flat_history());
+  TEST_ASSERT_EQ_INT(as_int(without.h) + 80, as_int(s.h));
+
+  TEST_ASSERT_TRUE(contained(s));
+  TEST_ASSERT_TRUE(ids_unique(s));
+  return 0;
+}
+
+int test_system_row_colors(void) {
+  sc::Readings r = live_readings_with_sys();
+  auto color_of = [&](const char *id) {
+    const sc::Scene s = sc::build_scene(base_options(), r, flat_history());
+    const sc::Text *t = find_text(s, id);
+    return t ? t->color : sc::Rgba{};
+  };
+  TEST_ASSERT_TRUE(same_color(sc::kText, color_of("id_osc_cpu_t")));
+  r.sys.cpu_temp = 65;
+  TEST_ASSERT_TRUE(same_color(sc::kWarn, color_of("id_osc_cpu_t")));
+  r.sys.cpu_temp = 80;
+  TEST_ASSERT_TRUE(same_color(sc::kBad, color_of("id_osc_cpu_t")));
+  r.sys.soc_temp = 84;
+  TEST_ASSERT_TRUE(same_color(sc::kWarn, color_of("id_osc_gpu_v")));
+  r.sys.soc_temp = 85;
+  TEST_ASSERT_TRUE(same_color(sc::kBad, color_of("id_osc_gpu_v")));
+  r.sys.soc_temp = 50;
+  TEST_ASSERT_TRUE(same_color(sc::kText, color_of("id_osc_gpu_v")));
+  /* Load and memory values turn warn past 85 %. */
+  TEST_ASSERT_TRUE(same_color(sc::kText, color_of("id_osc_cpu_v")));
+  r.sys.cpu_pct = 90.0f;
+  TEST_ASSERT_TRUE(same_color(sc::kWarn, color_of("id_osc_cpu_v")));
+  r.sys.ram_used_mb = 15000;
+  TEST_ASSERT_TRUE(same_color(sc::kWarn, color_of("id_osc_mem_v")));
+  const sc::Scene s = sc::build_scene(base_options(), r, flat_history());
+  const sc::Rect *mfill = find_rect(s, "id_osc_mem_fill");
+  TEST_ASSERT_TRUE(mfill && same_color(sc::kWarn, mfill->color));
+  return 0;
+}
+
+/* Nothing sampled yet, or a NaN: dashes, tracks only, no total. */
+int test_system_row_invalid(void) {
+  sc::Readings r = live_readings(); /* sys left at defaults */
+  sc::Scene s = sc::build_scene(base_options(), r, flat_history());
+  TEST_ASSERT_STREQ(kDash, text_of(s, "id_osc_cpu_v"));
+  TEST_ASSERT_STREQ(kDash, text_of(s, "id_osc_cpu_t"));
+  TEST_ASSERT_STREQ(kDash, text_of(s, "id_osc_gpu_v"));
+  TEST_ASSERT_STREQ(kDash, text_of(s, "id_osc_gpu_t"));
+  TEST_ASSERT_STREQ(kDash, text_of(s, "id_osc_mem_v"));
+  TEST_ASSERT_STREQ("GB", text_of(s, "id_osc_mem_u"));
+  TEST_ASSERT_TRUE(find_text(s, "id_osc_mem_tot") == nullptr);
+  TEST_ASSERT_EQ_INT(0, count_rect_prefix(s, "id_osc_cpu_seg"));
+  TEST_ASSERT_TRUE(find_rect(s, "id_osc_gpu_fill") == nullptr);
+  TEST_ASSERT_TRUE(find_rect(s, "id_osc_mem_fill") == nullptr);
+  TEST_ASSERT_TRUE(find_rect(s, "id_osc_cpu_track") != nullptr);
+  TEST_ASSERT_TRUE(find_rect(s, "id_osc_gpu_track") != nullptr);
+  TEST_ASSERT_TRUE(find_rect(s, "id_osc_mem_track") != nullptr);
+
+  r = live_readings_with_sys();
+  r.sys.cpu_pct = std::numeric_limits<float>::quiet_NaN();
+  r.sys.gpu_power_w = std::numeric_limits<float>::infinity();
+  r.sys.ram_total_mb = 0;
+  s = sc::build_scene(base_options(), r, flat_history());
+  TEST_ASSERT_STREQ(kDash, text_of(s, "id_osc_cpu_v"));
+  TEST_ASSERT_STREQ(kDash, text_of(s, "id_osc_gpu_t"));
+  TEST_ASSERT_STREQ(kDash, text_of(s, "id_osc_mem_v"));
+  TEST_ASSERT_TRUE(contained(s));
+  return 0;
+}
+
+/* The row does not need a game; the toggle removes it everywhere. */
+int test_system_row_no_game_and_toggle(void) {
+  sc::Readings r = live_readings_with_sys();
+  r.fps_valid = false;
+  sc::Scene s = sc::build_scene(base_options(), r, flat_history());
+  TEST_ASSERT_STREQ("NO GAME", text_of(s, "id_osc_head_l"));
+  TEST_ASSERT_STREQ("46%", text_of(s, "id_osc_cpu_v"));
+  TEST_ASSERT_TRUE(find_rect(s, "id_osc_sys_rule") != nullptr);
+  const sc::Scene live = sc::build_scene(base_options(), live_readings_with_sys(),
+                                         flat_history());
+  TEST_ASSERT_TRUE(s.h < live.h);
+  TEST_ASSERT_TRUE(contained(s));
+
+  for (sc::Detail d : {sc::Detail::Panel, sc::Detail::Compact}) {
+    sc::Options o = base_options(d);
+    o.show_system = false;
+    s = sc::build_scene(o, live_readings_with_sys(), flat_history());
+    TEST_ASSERT_TRUE(find_rect(s, "id_osc_sys_rule") == nullptr);
+    TEST_ASSERT_TRUE(find_text(s, "id_osc_cpu_v") == nullptr);
+    TEST_ASSERT_TRUE(find_text(s, "id_osc_scpu_v") == nullptr);
+    TEST_ASSERT_TRUE(find_rect(s, "id_osc_sep1") == nullptr);
+  }
+  /* Minimal never has it, whatever the option says. */
+  s = sc::build_scene(base_options(sc::Detail::Minimal), live_readings_with_sys(),
+                      flat_history());
+  TEST_ASSERT_TRUE(find_text(s, "id_osc_cpu_v") == nullptr);
+  TEST_ASSERT_TRUE(find_text(s, "id_osc_scpu_v") == nullptr);
+  return 0;
+}
+
+/* Compact: three separated groups after the mini chart, in fixed slots. */
+int test_system_row_compact(void) {
+  const sc::Options o = base_options(sc::Detail::Compact);
+  const sc::Scene s = sc::build_scene(o, live_readings_with_sys(), flat_history());
+  TEST_ASSERT_STREQ("CPU", text_of(s, "id_osc_scpu_l"));
+  TEST_ASSERT_STREQ("46%", text_of(s, "id_osc_scpu_v"));
+  TEST_ASSERT_STREQ("58\xC2\xB0", text_of(s, "id_osc_scpu_t"));
+  TEST_ASSERT_STREQ("GPU", text_of(s, "id_osc_sgpu_l"));
+  TEST_ASSERT_STREQ("70\xC2\xB0", text_of(s, "id_osc_sgpu_v"));
+  TEST_ASSERT_STREQ("65 W", text_of(s, "id_osc_sgpu_t"));
+  TEST_ASSERT_STREQ("MEM", text_of(s, "id_osc_smem_l"));
+  TEST_ASSERT_STREQ("9.6", text_of(s, "id_osc_smem_v"));
+  TEST_ASSERT_STREQ("GB", text_of(s, "id_osc_smem_u"));
+  TEST_ASSERT_EQ_INT(3, count_rect_prefix(s, "id_osc_sep") - 1); /* sep0 + 3 */
+  const sc::Rect *base = find_rect(s, "id_osc_sbase");
+  const sc::Rect *sep1 = find_rect(s, "id_osc_sep1");
+  TEST_ASSERT_TRUE(base && sep1 && sep1->x > base->x + base->w);
+  TEST_ASSERT_TRUE(contained(s));
+  TEST_ASSERT_TRUE(ids_unique(s));
+
+  /* Width and positions do not depend on the values. */
+  const sc::Scene none = sc::build_scene(o, live_readings(), flat_history());
+  TEST_ASSERT_EQ_INT(as_int(s.w), as_int(none.w));
+  const sc::Text *a = find_text(s, "id_osc_sgpu_l");
+  const sc::Text *b = find_text(none, "id_osc_sgpu_l");
+  TEST_ASSERT_TRUE(a && b && as_int(a->x) == as_int(b->x));
+  TEST_ASSERT_STREQ(kDash, text_of(none, "id_osc_scpu_v"));
   return 0;
 }
 
 /* Renderer cost with full charts. Each bar is a widget, so the panel is
- * dominated by its 130 bars. */
+ * dominated by its 130 bars plus the system row's 34. */
 int test_widget_budget(void) {
   struct Case {
     sc::Detail detail;
     int max_widgets;
   } cases[] = {{sc::Detail::Minimal, 10},
-               {sc::Detail::Compact, 80},
-               {sc::Detail::Panel, 190},
-               {sc::Detail::Full, 190}};
+               {sc::Detail::Compact, 100},
+               {sc::Detail::Panel, 230},
+               {sc::Detail::Full, 230}};
   for (const Case &c : cases) {
     sc::Options o = base_options(c.detail);
     o.brand = true;
-    sc::Scene s = sc::build_scene(o, live_readings(), flat_history());
+    sc::Scene s = sc::build_scene(o, live_readings_with_sys(), flat_history());
     TEST_ASSERT_TRUE(!s.rects.empty());
     TEST_ASSERT_TRUE(ids_unique(s));
     if (widget_count(s) > c.max_widgets)
@@ -718,6 +931,11 @@ extern "C" int test_overlay_scene_suite(void) {
   failures += onion_test_run("overlay_scene.full_is_panel", test_full_matches_panel);
   failures += onion_test_run("overlay_scene.target", test_target_inference);
   failures += onion_test_run("overlay_scene.format", test_formatting);
+  failures += onion_test_run("overlay_scene.system_panel", test_system_row_panel);
+  failures += onion_test_run("overlay_scene.system_colors", test_system_row_colors);
+  failures += onion_test_run("overlay_scene.system_invalid", test_system_row_invalid);
+  failures += onion_test_run("overlay_scene.system_toggle", test_system_row_no_game_and_toggle);
+  failures += onion_test_run("overlay_scene.system_compact", test_system_row_compact);
   failures += onion_test_run("overlay_scene.budget", test_widget_budget);
   failures += onion_test_run("overlay_scene.large_font", test_large_font_scales);
   failures += onion_test_run("overlay_scene.frame_window", test_frame_count_window);

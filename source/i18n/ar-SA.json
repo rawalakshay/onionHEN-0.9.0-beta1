@@ -143,6 +143,8 @@
     "overlay.brand.desc": "إظهار \"4aLse Benchmarks\" أعلى اللوحة",
     "overlay.fps_pill": "شارة FPS في الزاوية الأخرى",
     "overlay.fps_pill.desc": "إظهار عداد FPS الصغير في الزاوية المقابلة أيضًا",
+    "overlay.system": "صف النظام (المعالج، الرسوميات، الذاكرة)",
+    "overlay.system.desc": "عرض حمل المعالج ودرجة حرارته، ودرجة حرارة الشريحة وطاقة الرسوميات، واستخدام الذاكرة أسفل الرسوم البيانية",
     "overlay.gpu": "GPU",
     "overlay.gpu.desc": "إظهار حرارة GPU واستخدام ذاكرة الفيديو",
     "overlay.fps": "FPS",

@@ -173,6 +173,8 @@ constexpr int kOverlayUpdateIntervalFrames = 60;
 constexpr int kFpsUpdateIntervalFrames = 2;
 
 constexpr int kSceneUpdateIntervalFrames = 4;
+/* CPU / GPU / MEM row: about twice a second at 60 Hz. */
+constexpr int kSystemUpdateIntervalFrames = 30;
 
 constexpr int kClockIdRealtime = 4;
 constexpr int kVmSystem = 1;
@@ -236,6 +238,11 @@ bool wants_ip() {
 bool wants_fan() {
   return wants_other_metrics() &&
          (g_settings.overlay_fan || detail_is(onion::kOverlayDetailFull));
+}
+/* The scene overlay's CPU / GPU / MEM row (compact, panel, full). */
+bool wants_system() {
+  return g_settings.overlay_enabled && g_settings.overlay_system &&
+         !detail_is(onion::kOverlayDetailMinimal);
 }
 
 scene::Detail scene_detail() {
@@ -587,17 +594,14 @@ bool init_overlay_once(unsigned int idle_tid[kCpuCores]) {
   return true;
 }
 
-/** Sample CPU into Usage[]; formats CPU_USAGE. Returns false if sampling skipped/failed. */
-bool sample_cpu_usage(unsigned int idle_tid[kCpuCores], int& current_bank,
-                      char* cpu_usage, size_t cpu_usage_sz) {
-  if (!wants_cpu())
-    return false;
-
-  /*
-   * Dual-bank sample: first successful GetCpuUsage seeds the other bank; the
-   * next one can compute a delta. Bound retries so a stuck/failing CPU probe
-   * cannot block RAM/GPU/IP updates on the same render tick.
-   */
+/**
+ * Dual-bank CPU sample into the global Usage[]: the first successful
+ * GetCpuUsage seeds the other bank, the next one can compute a delta. Bound
+ * retries so a stuck/failing probe cannot block the rest of the render
+ * tick. False when no delta was available (a core whose idle thread is
+ * missing keeps its previous value, see calc_usage).
+ */
+bool sample_cpu_cores(unsigned int idle_tid[kCpuCores], int& current_bank) {
   constexpr int kMaxAttempts = 4;
   for (int attempt = 0; attempt < kMaxAttempts; ++attempt) {
     gThread_Data[current_bank].Thread_Count = kMaxProcThreads;
@@ -615,23 +619,34 @@ bool sample_cpu_usage(unsigned int idle_tid[kCpuCores], int& current_bank,
 
     calc_usage(idle_tid, &gThread_Data[!current_bank], &gThread_Data[current_bank],
                Usage);
-
-    if (g_settings.all_cpu_usage) {
-      snprintf(cpu_usage, cpu_usage_sz,
-               "%2.0f%% %2.0f%% %2.0f%% %2.0f%% %2.0f%% %2.0f%% %2.0f%% %2.0f%%",
-               Usage[0], Usage[1], Usage[2], Usage[3], Usage[4], Usage[5], Usage[6],
-               Usage[7]);
-    } else {
-      float avg = 0.f;
-      for (int i = 0; i < kCpuCores; i++)
-        avg += Usage[i];
-      avg /= static_cast<float>(kCpuCores);
-      snprintf(cpu_usage, cpu_usage_sz, "%.0f%%", avg);
-    }
     return true;
   }
-  snprintf(cpu_usage, cpu_usage_sz, "--%%");
   return false;
+}
+
+/** Sample CPU into Usage[]; formats CPU_USAGE. Returns false if sampling skipped/failed. */
+bool sample_cpu_usage(unsigned int idle_tid[kCpuCores], int& current_bank,
+                      char* cpu_usage, size_t cpu_usage_sz) {
+  if (!wants_cpu())
+    return false;
+
+  if (!sample_cpu_cores(idle_tid, current_bank)) {
+    snprintf(cpu_usage, cpu_usage_sz, "--%%");
+    return false;
+  }
+  if (g_settings.all_cpu_usage) {
+    snprintf(cpu_usage, cpu_usage_sz,
+             "%2.0f%% %2.0f%% %2.0f%% %2.0f%% %2.0f%% %2.0f%% %2.0f%% %2.0f%%",
+             Usage[0], Usage[1], Usage[2], Usage[3], Usage[4], Usage[5], Usage[6],
+             Usage[7]);
+  } else {
+    float avg = 0.f;
+    for (int i = 0; i < kCpuCores; i++)
+      avg += Usage[i];
+    avg /= static_cast<float>(kCpuCores);
+    snprintf(cpu_usage, cpu_usage_sz, "%.0f%%", avg);
+  }
+  return true;
 }
 
 void format_fps_text(char *buf, size_t buf_sz) {
@@ -798,6 +813,90 @@ void sample_fps() {
   }
 }
 
+/**
+ * CPU load and temperature, SoC temperature, GPU core power and system
+ * memory into g_readings.sys. Each source is independent: one that fails
+ * renders as a dash while the others keep updating.
+ */
+void sample_system(unsigned int idle_tid[kCpuCores], int& current_bank) {
+  scene::SystemReadings &s = g_readings.sys;
+
+  /* The first success spans the microseconds between the two seed
+   * snapshots, so it is dropped. Two failures in a row blank the column
+   * rather than leave a stale number that looks live. */
+  static bool cpu_seeded = false;
+  static int cpu_failures = 0;
+  bool have_idle = false;
+  for (int i = 0; i < kCpuCores; ++i)
+    have_idle = have_idle || idle_tid[i] != 0;
+  if (have_idle && sample_cpu_cores(idle_tid, current_bank)) {
+    cpu_failures = 0;
+    if (cpu_seeded) {
+      float sum = 0.0f;
+      for (int i = 0; i < kCpuCores; ++i) {
+        s.cpu_core[i] = Usage[i];
+        sum += Usage[i];
+      }
+      s.cpu_pct = sum / static_cast<float>(kCpuCores);
+      s.cpu_valid = std::isfinite(s.cpu_pct);
+    }
+    cpu_seeded = true;
+  } else if (++cpu_failures >= 2) {
+    s.cpu_valid = false;
+  }
+
+  int t = 0;
+  s.cpu_temp_valid = sceKernelGetCpuTemperature(&t) == 0 && t > 0 && t < 150;
+  if (s.cpu_temp_valid)
+    s.cpu_temp = t;
+  t = 0;
+  s.soc_temp_valid =
+      sceKernelGetSocSensorTemperature(0, &t) == 0 && t > 0 && t < 150;
+  if (s.soc_temp_valid)
+    s.soc_temp = t;
+
+  int used = 0, free_mb = 0, total = 0;
+  s.ram_valid = Get_Page_Table_Stats(kVmSystem, kPageTableRam, &used, &free_mb,
+                                     &total) &&
+                total > 0;
+  if (s.ram_valid) {
+    s.ram_used_mb = used;
+    s.ram_total_mb = total;
+  }
+
+  /* 0x70 bytes of u32: eight rails × (power mW, voltage mV, current mA);
+   * rail 0 is the GPU core. Decoding follows ps5-hwinfo, so the raw words
+   * are logged once for a check on the console. */
+  static bool power_logged = false;
+  constexpr int kPowerWords = 0x70 / 4;
+  /* The record size is community-sourced; the buffer is oversized so a
+   * larger firmware record cannot overrun the shell's stack. */
+  uint32_t raw[0x200 / 4] = {};
+  s.power_valid = false;
+  if (sceKernelGetSocPowerConsumption) {
+    const int rc = sceKernelGetSocPowerConsumption(raw);
+    if (rc == 0) {
+      if (!power_logged) {
+        power_logged = true;
+        char line[kPowerWords * 11 + 1];
+        size_t n = 0;
+        for (int i = 0; i < kPowerWords && n < sizeof(line); ++i)
+          n += static_cast<size_t>(snprintf(line + n, sizeof(line) - n, "%s%u",
+                                            i ? " " : "", raw[i]));
+        LOG_INFO("soc power raw[%d]: %s", kPowerWords, line);
+      }
+      s.gpu_power_w = static_cast<float>(raw[0]) / 1000.0f;
+      s.power_valid = raw[0] > 0;
+    } else if (!power_logged) {
+      power_logged = true;
+      LOG_INFO("sceKernelGetSocPowerConsumption failed: 0x%x", rc);
+    }
+  } else if (!power_logged) {
+    power_logged = true;
+    LOG_INFO("sceKernelGetSocPowerConsumption not resolved; GPU power hidden");
+  }
+}
+
 void scene_render() {
   scene::Readings &r = g_readings;
   scene::Options o{};
@@ -810,6 +909,7 @@ void scene_render() {
   o.opacity = g_settings.overlay_opacity;
   o.brand = g_settings.overlay_brand;
   o.fps_pill = g_settings.overlay_fps_pill;
+  o.show_system = g_settings.overlay_system;
   o.margin = static_cast<float>(g_settings.overlay_margin);
   overlay_scene_apply(scene::build_scene(o, r, g_history));
 }
@@ -825,6 +925,7 @@ void overlay_scene_reset_state() {
   g_fps_last_bucket_ms = 0;
   g_synth_ns = 0;
   g_readings.fps_valid = false;
+  g_readings.sys = scene::SystemReadings{};
 }
 
 void OnRender_Hook(MonoObject* instance) {
@@ -843,6 +944,7 @@ void OnRender_Hook(MonoObject* instance) {
   static int frames_until_update = 0;
   static int frames_until_fps = 0;
   static int frames_until_scene = 0;
+  static int frames_until_system = 0;
   static int frames_until_init = kOverlayInitDelayFrames;
   static char gpu_temp[32] = {};
   static char gpu_usage[32] = {};
@@ -882,6 +984,16 @@ void OnRender_Hook(MonoObject* instance) {
   }
 
   if (!kOverlayLegacyBarFallback) {
+    if (frames_until_system <= 0) {
+      if (wants_system())
+        sample_system(idle_thread_id, current_bank);
+      else if (g_readings.sys.cpu_valid || g_readings.sys.ram_valid ||
+               g_readings.sys.cpu_temp_valid || g_readings.sys.soc_temp_valid)
+        g_readings.sys = scene::SystemReadings{};
+      frames_until_system = kSystemUpdateIntervalFrames;
+    } else {
+      frames_until_system--;
+    }
     if (frames_until_fps <= 0) {
       sample_fps();
       frames_until_fps = kFpsUpdateIntervalFrames;

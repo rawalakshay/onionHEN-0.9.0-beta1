@@ -59,6 +59,49 @@ static int test_compose_dead_ticks(void) {
   return 0;
 }
 
+static int test_compose_bc(void) {
+  onion::fps::BcIn in;
+  auto out = onion::fps::compose_bc(in);
+  TEST_ASSERT_TRUE(!out.valid); /* neither source */
+
+  in.bc_ok = true;
+  in.bc = 50.f;
+  out = onion::fps::compose_bc(in);
+  TEST_ASSERT_TRUE(out.valid);
+  TEST_ASSERT_TRUE(out.fps == 50.f);
+  TEST_ASSERT_EQ_INT(ONION_FPS_SRC_BC, out.source);
+
+  /* The detour overcounts: scanout is what reached the screen. */
+  in.scanout_ok = true;
+  in.scanout = 40.f;
+  out = onion::fps::compose_bc(in);
+  TEST_ASSERT_TRUE(out.valid);
+  TEST_ASSERT_TRUE(out.fps == 40.f);
+  TEST_ASSERT_TRUE((out.source & ONION_FPS_SRC_BC) != 0);
+  TEST_ASSERT_TRUE((out.source & ONION_FPS_SRC_SCANOUT) != 0);
+  TEST_ASSERT_TRUE((out.source & ONION_FPS_SRC_HYBRID) != 0);
+
+  /* Scanout at the refresh cap with fewer flips: keep the flips. */
+  in.scanout = 60.f;
+  in.bc = 30.f;
+  out = onion::fps::compose_bc(in);
+  TEST_ASSERT_TRUE(out.fps == 30.f);
+
+  in.bc_ok = false;
+  out = onion::fps::compose_bc(in);
+  TEST_ASSERT_TRUE(out.valid);
+  TEST_ASSERT_TRUE(out.fps == 60.f);
+  TEST_ASSERT_EQ_INT(ONION_FPS_SRC_SCANOUT, out.source);
+
+  /* Out-of-range sources do not count as live. */
+  in.bc_ok = true;
+  in.bc = 1000.f;
+  in.scanout = 0.f;
+  out = onion::fps::compose_bc(in);
+  TEST_ASSERT_TRUE(!out.valid);
+  return 0;
+}
+
 static int test_title_prefixes(void) {
   TEST_ASSERT_TRUE(onion::fps::is_ps5_native_title("PPSA12345"));
   TEST_ASSERT_TRUE(onion::fps::is_ps5_native_title("PPSB00001"));
@@ -162,6 +205,7 @@ extern "C" int test_fps_formula_suite(void) {
   failures += onion_test_run("fps_compose_hybrid_multipass",
                              test_compose_hybrid_and_multipass);
   failures += onion_test_run("fps_compose_dead_ticks", test_compose_dead_ticks);
+  failures += onion_test_run("fps_compose_bc", test_compose_bc);
   failures += onion_test_run("fps_title_prefixes", test_title_prefixes);
   failures += onion_test_run("fps_sample_size", test_sample_size);
   failures += onion_test_run("fps_seqlock_roundtrip", test_seqlock_roundtrip);

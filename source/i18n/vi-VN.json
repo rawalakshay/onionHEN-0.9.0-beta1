@@ -143,6 +143,8 @@
     "overlay.brand.desc": "Hiển thị \"4aLse Benchmarks\" ở đầu bảng",
     "overlay.fps_pill": "Nhãn FPS ở góc còn lại",
     "overlay.fps_pill.desc": "Hiển thị thêm bộ đếm FPS nhỏ ở góc đối diện",
+    "overlay.system": "Hàng hệ thống (CPU, GPU, bộ nhớ)",
+    "overlay.system.desc": "Hiển thị tải và nhiệt độ CPU, nhiệt độ SoC và công suất GPU, cùng mức dùng bộ nhớ bên dưới biểu đồ",
     "overlay.gpu": "GPU",
     "overlay.gpu.desc": "Hiện nhiệt độ GPU và mức dùng VRAM",
     "overlay.fps": "FPS",

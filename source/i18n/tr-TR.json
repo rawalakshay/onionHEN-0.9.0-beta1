@@ -143,6 +143,8 @@
     "overlay.brand.desc": "Panelin üstünde \"4aLse Benchmarks\" göster",
     "overlay.fps_pill": "Diğer köşede FPS etiketi",
     "overlay.fps_pill.desc": "Küçük FPS sayacını karşı köşede de göster",
+    "overlay.system": "Sistem satırı (CPU, GPU, bellek)",
+    "overlay.system.desc": "Grafiklerin altında CPU yükü ve sıcaklığı, SoC sıcaklığı ve GPU gücü ile bellek kullanımını göster",
     "overlay.gpu": "GPU",
     "overlay.gpu.desc": "GPU sıcaklığını ve VRAM kullanımını göster",
     "overlay.fps": "FPS",

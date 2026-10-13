@@ -430,15 +430,8 @@ void *vsync_fps_sampler_thread(void *args) noexcept {
     }
     had_app = true;
 
-    if (onion::fps::is_ps4_bc_title(tid.c_str())) {
-      clear_vsync_state();
-      if (diag_due(last_diag_ns))
-        LOG_TRACE("fps-diag: vsync tid=%s app=%d state=ps4-bc-skipped",
-                 tid.c_str(), app_id);
-      usleep(kSampleUs);
-      continue;
-    }
-
+    /* PS4 titles are sampled too: the render thread takes the lower of the
+     * flip-submission counter and this scanout rate. */
     uint64_t count = 0;
     float hz = 0.f;
     onion::fps::DceSampleStatus sample_status =
@@ -650,8 +643,6 @@ void *fps_sampler_thread(void *args) noexcept {
         if (bc_hook.sample(&bc_count, &bc_status)) {
           bc_rate_diag = sample_hz(bc_st, bc_count, &bc_hz);
           bc_ok = bc_rate_diag.status == RateStatus::Ok;
-          /* A stalled counter is a tick with no new flips: count it as 0. */
-          frames.add(bc_ok ? bc_hz : 0.f, monotonic_ns());
         }
         if (!bc_ok && bc_last_status != bc_status) {
           bc_last_status = bc_status;
@@ -662,9 +653,25 @@ void *fps_sampler_thread(void *args) noexcept {
                    static_cast<unsigned long long>(bc_count));
         }
       }
-      if (bc_ok) {
+      /* The detour counts flip submissions, which can run ahead of what the
+       * display shows; the scanout counter cannot. Take the lower of the two
+       * when both are live. */
+      float bc_vsync_fps = 0.f;
+      VsyncReadDiag bc_vsync_diag;
+      const bool bc_have_vsync =
+          read_vsync_fps(tid.c_str(), &bc_vsync_fps, &bc_vsync_diag);
+      onion::fps::BcIn bc_in;
+      bc_in.bc_ok = bc_ok;
+      bc_in.bc = bc_hz;
+      bc_in.scanout_ok = bc_have_vsync;
+      bc_in.scanout = bc_vsync_fps;
+      const onion::fps::HybridOut bc_out = onion::fps::compose_bc(bc_in);
+      /* A tick with no new frames from any live source counts as 0. */
+      if (bc_hook.installed() || bc_have_vsync)
+        frames.add(bc_out.valid ? bc_out.fps : 0.f, monotonic_ns());
+      if (bc_out.valid) {
         bc_dead = 0;
-        window[window_i] = bc_hz;
+        window[window_i] = bc_out.fps;
         window_i = (window_i + 1) % onion::fps::kWindow;
         if (window_n < onion::fps::kWindow)
           ++window_n;
@@ -672,12 +679,12 @@ void *fps_sampler_thread(void *args) noexcept {
         OnionFpsSample bc_sample {};
         bc_sample.pid = static_cast<int>(cached_pid);
         bc_sample.valid = 1;
-        bc_sample.source = ONION_FPS_SRC_BC;
+        bc_sample.source = bc_out.source;
         bc_sample.fps = smoothed;
         bc_sample.unix_ns = onion_fps_realtime_ns();
         std::strncpy(bc_sample.title_id, tid.c_str(),
                      sizeof(bc_sample.title_id) - 1);
-        attach_frame_count(bc_sample, frames, bc_hz);
+        attach_frame_count(bc_sample, frames, bc_out.fps);
         onion::fps::publish(bc_sample);
         if (last_publish_valid != 1) {
           LOG_INFO("fps: bc source active tid=%s pid=%d fps=%.2f "
@@ -687,6 +694,7 @@ void *fps_sampler_thread(void *args) noexcept {
           last_publish_valid = 1;
         }
       } else if (last_publish_valid == 1) {
+        /* No live source this tick: hold the last sample a little. */
         ++bc_dead;
         if (bc_dead >= kBcDeadTicks) {
           last_publish_valid = -1;
@@ -702,7 +710,24 @@ void *fps_sampler_thread(void *args) noexcept {
                  bc_hook.installed() ? 1 : 0,
                  static_cast<unsigned long long>(bc_count),
                  rate_status_name(bc_rate_diag.status), bc_hz,
-                 bc_ok ? 1 : 0, bc_dead);
+                 bc_out.valid ? 1 : 0, bc_dead);
+      /* TEMPORARY: INFO-level summary of both PS4 counters so a default log
+       * level shows which one the overlay value comes from. */
+      {
+        const uint64_t now_ns = monotonic_ns();
+        if (now_ns != 0 &&
+            (last_probe_ns == 0 || now_ns - last_probe_ns >= 5000000000ULL)) {
+          last_probe_ns = now_ns;
+          LOG_INFO("fpsprobe: tid=%s pid=%d bc=%s/%.2f(c%llu) scanout=%s/%.2f "
+                   "out=%.2f valid=%d src=0x%02x",
+                   tid.c_str(), static_cast<int>(cached_pid),
+                   rate_status_name(bc_rate_diag.status), bc_hz,
+                   static_cast<unsigned long long>(bc_count),
+                   vsync_read_status_name(bc_vsync_diag.status), bc_vsync_fps,
+                   bc_out.fps, bc_out.valid ? 1 : 0,
+                   static_cast<unsigned>(bc_out.source));
+        }
+      }
       usleep(kSampleUs);
       continue;
     }

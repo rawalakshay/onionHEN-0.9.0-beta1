@@ -44,6 +44,8 @@ const ExactValueEntry kExactValues[] = {
      +[]() -> std::string { return bool_str(g_settings.overlay_brand); }},
     {"id_overlay_fps_pill",
      +[]() -> std::string { return bool_str(g_settings.overlay_fps_pill); }},
+    {"id_overlay_system",
+     +[]() -> std::string { return bool_str(g_settings.overlay_system); }},
     {"id_overlay_gpu",
      +[]() -> std::string { return bool_str(g_settings.overlay_gpu); }},
     {"id_overlay_fps",

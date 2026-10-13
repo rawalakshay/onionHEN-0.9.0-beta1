@@ -748,6 +748,10 @@ void append_toolbox_display_group(ps5ui::Group& g) {
                      toolbox_i18n::tr("overlay.fps_pill"),
                      toolbox_on("id_overlay_fps_pill"), std::nullopt,
                      toolbox_i18n::tr("overlay.fps_pill.desc"))
+             .toggle("id_overlay_system",
+                     toolbox_i18n::tr("overlay.system"),
+                     toolbox_on("id_overlay_system"), std::nullopt,
+                     toolbox_i18n::tr("overlay.system.desc"))
              .toggle("id_overlay_brand", toolbox_i18n::tr("overlay.brand"),
                      toolbox_on("id_overlay_brand"), std::nullopt,
                      toolbox_i18n::tr("overlay.brand.desc"))

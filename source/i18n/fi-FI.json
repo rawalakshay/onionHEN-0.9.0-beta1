@@ -143,6 +143,8 @@
     "overlay.brand.desc": "Näytä \"4aLse Benchmarks\" paneelin yläreunassa",
     "overlay.fps_pill": "FPS-merkki toisessa kulmassa",
     "overlay.fps_pill.desc": "Näytä myös pieni FPS-laskuri vastakkaisessa kulmassa",
+    "overlay.system": "Järjestelmärivi (CPU, GPU, muisti)",
+    "overlay.system.desc": "Näytä suorittimen kuorma ja lämpötila, SoC:n lämpötila ja GPU:n teho sekä muistin käyttö kaavioiden alla",
     "overlay.gpu": "GPU",
     "overlay.gpu.desc": "Näytä GPU:n lämpötila ja VRAM-käyttö",
     "overlay.fps": "FPS",

@@ -65,9 +65,34 @@ inline constexpr Rgba kGuideLine = hex(0xEEF2F5, 0.22f);
 inline constexpr Rgba kGood = hex(0x5AA9E6);
 inline constexpr Rgba kWarn = hex(0xF5B13D);
 inline constexpr Rgba kBad = hex(0xFF7A59);
+/* System row bars: a dim track with a neutral fill. */
+inline constexpr Rgba kTrack = hex(0xFFFFFF, 0.10f);
+inline constexpr Rgba kFill = hex(0xC9D2E0);
 
 /* Shown in the panel header when Options::brand is on. */
 inline constexpr const char *kBrandText = "4aLse Benchmarks";
+
+/** Usage bars and usage values turn warn above this percentage. */
+inline constexpr float kBarWarnPct = 85.0f;
+/** Full scale of the GPU core power bar, watts. Provisional until a heavy
+ *  scene has been read on a console. */
+inline constexpr float kGpuPowerScaleW = 130.0f;
+
+/** Thermal thresholds in °C: warn from `hot`, bad from `crit`. */
+struct TempScale {
+  int hot;
+  int crit;
+};
+inline constexpr TempScale kCpuTempScale = {65, 80};
+inline constexpr TempScale kGpuTempScale = {65, 85};
+
+inline Rgba temp_color(int celsius, TempScale scale) {
+  if (celsius >= scale.crit)
+    return kBad;
+  if (celsius >= scale.hot)
+    return kWarn;
+  return kText;
+}
 
 enum class FpsState : uint8_t { Good, Warn, Bad };
 
@@ -418,6 +443,27 @@ private:
   uint64_t stall_ns_ = 0;
 };
 
+/** System metrics sampled by the shell; every *_valid = false renders as a
+ *  dash and an empty bar. */
+struct SystemReadings {
+  bool cpu_valid = false;
+  /** Busy percentage per core, 0..100. */
+  float cpu_core[8] = {};
+  /** Mean of cpu_core. */
+  float cpu_pct = 0.0f;
+  bool cpu_temp_valid = false;
+  int cpu_temp = 0; /* °C */
+  bool soc_temp_valid = false;
+  int soc_temp = 0; /* °C, the APU sensor: shown as GPU */
+  bool power_valid = false;
+  /** GPU core rail, watts. The console has no GPU busy counter, so this is
+   *  the load proxy. */
+  float gpu_power_w = 0.0f;
+  bool ram_valid = false;
+  int ram_used_mb = 0;
+  int ram_total_mb = 0;
+};
+
 /** Latest numbers; fps_valid = false shows "no game". */
 struct Readings {
   bool fps_valid = false;
@@ -437,6 +483,8 @@ struct Readings {
   /** Frame cap the colours and the target lines compare against. */
   int fps_target = 60;
   std::string title_id;
+  /** CPU / GPU / MEM row; independent of fps_valid. */
+  SystemReadings sys;
 };
 
 struct Histories {
@@ -462,6 +510,9 @@ struct Options {
   bool brand = false;
   /** Also draw the FPS pill in the opposite corner (compact / panel). */
   bool fps_pill = false;
+  /** CPU / GPU / MEM row under the panel charts and after the compact
+   *  strip (overlay.system). Minimal never shows it. */
+  bool show_system = true;
 };
 
 enum class TextAlign : uint8_t { Left, Right };
@@ -526,6 +577,9 @@ struct Metrics {
   float pad_x, pad_y, panel_w, head_h, hero_h, caption_h, chart_h, chart_gap;
   float section_gap, col_gap, fps_bar_gap, ft_bar_gap;
   float line_h, gap, sep_gap, strip_chart_w, strip_chart_h, dot;
+  /* System row: value row height, bar height / gap, column gap, core
+   * segment gap. */
+  float sys_val_h, sys_bar_h, sys_bar_gap, sys_col_gap, sys_seg_gap;
 
   explicit Metrics(int font_pt) {
     value_pt = font_pt > 0 ? font_pt : static_cast<int>(kFontH);
@@ -558,6 +612,11 @@ struct Metrics {
     strip_chart_w = px(120.0f);
     strip_chart_h = px(24.0f);
     dot = px(10.0f);
+    sys_val_h = px(28.0f);
+    sys_bar_h = std::max(2.0f, px(3.0f));
+    sys_bar_gap = px(4.0f);
+    sys_col_gap = px(12.0f);
+    sys_seg_gap = std::max(1.0f, px(2.0f));
   }
 
   /** Top inset that puts a run of `pt` on the baseline a run of `ref_pt`
@@ -579,6 +638,7 @@ inline std::string fmt(const char *format, double v) {
 
 inline constexpr const char *kDash = "\xE2\x80\x94";   /* — */
 inline constexpr const char *kMidDot = "\xC2\xB7";     /* · */
+inline constexpr const char *kDeg = "\xC2\xB0";        /* ° */
 
 /** NaN/Inf readings render as missing, never "nan". */
 inline Readings sanitized(const Readings &in) {
@@ -590,6 +650,13 @@ inline Readings sanitized(const Readings &in) {
     r.frame_ms_max = -1.0f;
   if (r.fps_target <= 0)
     r.fps_target = 60;
+  SystemReadings &s = r.sys;
+  for (float &core : s.cpu_core)
+    if (!ok(core))
+      core = 0.0f;
+  s.cpu_valid = s.cpu_valid && ok(s.cpu_pct);
+  s.power_valid = s.power_valid && ok(s.gpu_power_w) && s.gpu_power_w >= 0.0f;
+  s.ram_valid = s.ram_valid && s.ram_total_mb > 0 && s.ram_used_mb >= 0;
   return r;
 }
 
@@ -605,6 +672,28 @@ inline std::string fmt_fps1(float fps) {
 }
 inline std::string fmt_ms(float ms) {
   return detail::fmt("%.1f", std::clamp(ms, 0.0f, 999.9f));
+}
+inline std::string fmt_pct(float pct) {
+  return detail::fmt("%.0f%%", std::clamp(pct, 0.0f, 100.0f));
+}
+inline std::string fmt_temp(int celsius) {
+  return std::to_string(celsius) + detail::kDeg;
+}
+/** Watts, whole numbers: "65 W". */
+inline std::string fmt_watts(float w) {
+  return detail::fmt("%.0f W", std::clamp(w, 0.0f, 999.0f));
+}
+/** MB → "9.6" (GB, one decimal). */
+inline std::string fmt_gb(int mb) {
+  return detail::fmt("%.1f", static_cast<double>(std::max(mb, 0)) / 1024.0);
+}
+/** MB → "16" or "12.3" (GB; whole numbers drop the decimal). */
+inline std::string fmt_gb_total(int mb) {
+  const double gb = static_cast<double>(std::max(mb, 0)) / 1024.0;
+  const double rounded = std::round(gb * 10.0) / 10.0;
+  if (std::fabs(rounded - std::round(rounded)) < 0.05)
+    return detail::fmt("%.0f", rounded);
+  return detail::fmt("%.1f", rounded);
 }
 
 namespace detail {
@@ -842,6 +931,108 @@ inline std::vector<Bar> frame_bars(const Histories &h, int target, int n) {
 }
 
 /* ------------------------------------------------------------------ */
+/* System row: CPU 42% 58°  |  GPU 61° 74 W  |  MEM 9.6 GB   / 15.6     */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Three equal columns under the panel charts, each a heading row, a value
+ * row (big value + small value on one baseline) and a 3 px bar. Starts
+ * with a hairline rule. Returns the y just under the bars.
+ */
+inline float system_block(Builder &b, const Metrics &m, float x0, float iw,
+                          float y, const SystemReadings &s) {
+  y += m.section_gap;
+  b.rect("id_osc_sys_rule", x0, y, iw, 1.0f, kHairline);
+  y += 1.0f + m.section_gap;
+
+  const float cw = std::floor((iw - 2.0f * m.sys_col_gap) / 3.0f);
+  const float cx[3] = {x0, x0 + cw + m.sys_col_gap,
+                       x0 + 2.0f * (cw + m.sys_col_gap)};
+  const float cwl = x0 + iw - cx[2]; /* last column takes the remainder */
+  const float hy = y;
+  const float vy = y + m.caption_h;
+  const float by = vy + m.sys_val_h + m.sys_bar_gap;
+  const float vg = std::round(5.0f * m.k);
+
+  auto heading = [&](const char *id, float x, const char *text) {
+    b.text(id, x, Builder::left_w(text, m.label_pt), hy, m.caption_h, text,
+           kHeading, m.label_pt, kWeightLabel, TextAlign::Left, m.label_pt);
+  };
+  /* Big value at stat_pt, the small one at label_pt just after its glyphs;
+   * both sit on the stat baseline. */
+  auto values = [&](const char *big_id, const char *small_id, float x,
+                    const std::string &big, Rgba big_c,
+                    const std::string &small, Rgba small_c) {
+    b.text(big_id, x, Builder::left_w(big, m.stat_pt), vy, m.sys_val_h, big,
+           big_c, m.stat_pt, kWeightValue, TextAlign::Left, m.stat_pt);
+    const float sx = x + advance(big, m.stat_pt) + vg;
+    b.text(small_id, sx, Builder::left_w(small, m.label_pt), vy, m.sys_val_h,
+           small, small_c, m.label_pt, kWeightLabel, TextAlign::Left,
+           m.stat_pt);
+  };
+
+  /* CPU: load, temperature, one segment per core. */
+  heading("id_osc_cpu_l", cx[0], "CPU");
+  values("id_osc_cpu_v", "id_osc_cpu_t", cx[0],
+         s.cpu_valid ? fmt_pct(s.cpu_pct) : kDash,
+         s.cpu_valid && s.cpu_pct > kBarWarnPct ? kWarn : kText,
+         s.cpu_temp_valid ? fmt_temp(s.cpu_temp) : kDash,
+         s.cpu_temp_valid ? temp_color(s.cpu_temp, kCpuTempScale) : kLabel);
+  b.rect("id_osc_cpu_track", cx[0], by, cw, m.sys_bar_h, kTrack);
+  if (s.cpu_valid) {
+    const int n = static_cast<int>(sizeof(s.cpu_core) / sizeof(s.cpu_core[0]));
+    const float pitch = (cw + m.sys_seg_gap) / static_cast<float>(n);
+    for (int i = 0; i < n; ++i) {
+      const float sx0 = cx[0] + std::round(i * pitch);
+      const float sx1 = cx[0] + std::round((i + 1) * pitch) - m.sys_seg_gap;
+      const float sw = std::max(1.0f, sx1 - sx0);
+      const float load = std::clamp(s.cpu_core[i], 0.0f, 100.0f);
+      const float fw = load > 0.0f ? std::max(1.0f, std::round(sw * load / 100.0f))
+                                   : 0.0f;
+      /* Builder drops a zero-width rect, so an idle core leaves its slot
+       * showing the track. */
+      b.rect("id_osc_cpu_seg" + std::to_string(i), sx0, by, fw, m.sys_bar_h,
+             load > kBarWarnPct ? kWarn : kFill);
+    }
+  }
+
+  /* GPU: SoC temperature, core power; the bar is power on a fixed scale. */
+  heading("id_osc_gpu_l", cx[1], "GPU");
+  values("id_osc_gpu_v", "id_osc_gpu_t", cx[1],
+         s.soc_temp_valid ? fmt_temp(s.soc_temp) : kDash,
+         s.soc_temp_valid ? temp_color(s.soc_temp, kGpuTempScale) : kText,
+         s.power_valid ? fmt_watts(s.gpu_power_w) : kDash, kLabel);
+  b.rect("id_osc_gpu_track", cx[1], by, cw, m.sys_bar_h, kTrack);
+  if (s.power_valid)
+    b.rect("id_osc_gpu_fill", cx[1], by,
+           std::round(cw * std::clamp(s.gpu_power_w / kGpuPowerScaleW, 0.0f,
+                                      1.0f)),
+           m.sys_bar_h, kFill);
+
+  /* MEM: used GB; the total sits in the heading row so the value row never
+   * outgrows the column. */
+  heading("id_osc_mem_l", cx[2], "MEM");
+  if (s.ram_valid)
+    b.text("id_osc_mem_tot", cx[2], cwl, hy, m.caption_h,
+           "/ " + fmt_gb_total(s.ram_total_mb), kLabel, m.head_pt,
+           kWeightLabel, TextAlign::Right, m.label_pt);
+  const float mem_pct =
+      s.ram_valid ? 100.0f * static_cast<float>(s.ram_used_mb) /
+                        static_cast<float>(s.ram_total_mb)
+                  : 0.0f;
+  values("id_osc_mem_v", "id_osc_mem_u", cx[2],
+         s.ram_valid ? fmt_gb(s.ram_used_mb) : kDash,
+         s.ram_valid && mem_pct > kBarWarnPct ? kWarn : kText, "GB", kLabel);
+  b.rect("id_osc_mem_track", cx[2], by, cwl, m.sys_bar_h, kTrack);
+  if (s.ram_valid)
+    b.rect("id_osc_mem_fill", cx[2], by,
+           std::round(cwl * std::clamp(mem_pct, 0.0f, 100.0f) / 100.0f),
+           m.sys_bar_h, mem_pct > kBarWarnPct ? kWarn : kFill);
+
+  return by + m.sys_bar_h;
+}
+
+/* ------------------------------------------------------------------ */
 /* Compact: 60 FPS | 16.7 ms  AVG 59.9  LOW 58.6  ▁▁▁▇▁▁              */
 /* ------------------------------------------------------------------ */
 
@@ -900,7 +1091,49 @@ inline Scene build_compact(const Options &opt, const Readings &r,
   b.rect("id_osc_sbase", x, bottom, cw, 1.0f, kBaseline);
   b.rect("id_osc_starget", x, bottom - std::round(ch / 3.0f), cw, 1.0f,
          kTargetLine);
-  x += cw + std::round(14.0f * m.k);
+  x += cw;
+
+  /* System groups: | CPU 42% 58° | GPU 61° 74 W | MEM 9.6 GB. Fixed slots so
+   * nothing shifts as the numbers change. */
+  if (opt.show_system) {
+    const SystemReadings &s = r.sys;
+    const float tail_w = slot_w({"100\xC2\xB0", "128 W", "GB"}, m.label_pt);
+    auto sep = [&](const char *id) {
+      x += m.sep_gap;
+      b.rect(id, x, std::round((lh - sh) * 0.5f), 1.0f, sh, kSeparator);
+      x += 1.0f + m.sep_gap;
+    };
+    auto group = [&](const char *key, const char *label, const std::string &v,
+                     Rgba vc, std::initializer_list<const char *> worst,
+                     const std::string &tail, Rgba tc, const char *tail_suffix) {
+      const std::string p = std::string("id_osc_s") + key;
+      b.text(p + "_l", x, Builder::left_w(label, m.label_pt), 0.0f, lh, label,
+             kHeading, m.label_pt, kWeightLabel, TextAlign::Left, m.strip_pt);
+      x += advance(label, m.label_pt) + ug;
+      const float w = slot_w(worst, m.value_pt);
+      b.text(p + "_v", x, w, 0.0f, lh, v, vc, m.value_pt, kWeightValue,
+             TextAlign::Right, m.strip_pt);
+      x += w + ug;
+      b.text(p + tail_suffix, x, tail_w, 0.0f, lh, tail, tc, m.label_pt,
+             kWeightLabel, TextAlign::Left, m.strip_pt);
+      x += tail_w;
+    };
+    sep("id_osc_sep1");
+    group("cpu", "CPU", s.cpu_valid ? fmt_pct(s.cpu_pct) : kDash,
+          s.cpu_valid && s.cpu_pct > kBarWarnPct ? kWarn : kText, {"100%"},
+          s.cpu_temp_valid ? fmt_temp(s.cpu_temp) : kDash,
+          s.cpu_temp_valid ? temp_color(s.cpu_temp, kCpuTempScale) : kLabel,
+          "_t");
+    sep("id_osc_sep2");
+    group("gpu", "GPU", s.soc_temp_valid ? fmt_temp(s.soc_temp) : kDash,
+          s.soc_temp_valid ? temp_color(s.soc_temp, kGpuTempScale) : kText,
+          {"100\xC2\xB0"}, s.power_valid ? fmt_watts(s.gpu_power_w) : kDash,
+          kLabel, "_t");
+    sep("id_osc_sep3");
+    group("mem", "MEM", s.ram_valid ? fmt_gb(s.ram_used_mb) : kDash, kText,
+          {"88.8"}, "GB", kLabel, "_u");
+  }
+  x += std::round(14.0f * m.k);
   return finish(opt, std::move(content), x, lh);
 }
 
@@ -946,6 +1179,9 @@ inline Scene build_panel(const Options &opt, const Readings &r,
     b.text("id_osc_fps_v", x0, iw, y, lh, "NO GAME DETECTED", kLabel,
            m.label_pt, kWeightLabel, TextAlign::Left, m.label_pt);
     y += lh;
+    /* The system row does not need a game. */
+    if (opt.show_system)
+      y = system_block(b, m, x0, iw, y, r.sys);
     return finish(opt, std::move(content), m.panel_w, y + m.pad_y);
   }
 
@@ -1066,6 +1302,9 @@ inline Scene build_panel(const Options &opt, const Readings &r,
           kGuideLine, fmt_ms(2.0f * target_ms), opt.opacity);
     y = bottom + 1.0f;
   }
+
+  if (opt.show_system)
+    y = system_block(b, m, x0, iw, y, r.sys);
 
   return finish(opt, std::move(content), m.panel_w, y + m.pad_y);
 }

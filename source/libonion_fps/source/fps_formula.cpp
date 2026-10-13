@@ -109,6 +109,27 @@ HybridOut compose(const HybridIn &in) {
   return out;
 }
 
+HybridOut compose_bc(const BcIn &in) {
+  HybridOut out;
+  const bool bc = in.bc_ok && in.bc >= kFpsMin && in.bc <= kFpsMax;
+  const bool scanout =
+      in.scanout_ok && in.scanout >= kFpsMin && in.scanout <= kFpsMax;
+  if (!bc && !scanout)
+    return out;
+  out.valid = true;
+  if (bc && scanout) {
+    out.fps = in.bc < in.scanout ? in.bc : in.scanout;
+    out.source = ONION_FPS_SRC_BC | ONION_FPS_SRC_SCANOUT | ONION_FPS_SRC_HYBRID;
+  } else if (bc) {
+    out.fps = in.bc;
+    out.source = ONION_FPS_SRC_BC;
+  } else {
+    out.fps = in.scanout;
+    out.source = ONION_FPS_SRC_SCANOUT;
+  }
+  return out;
+}
+
 bool is_ps5_native_title(const char *title_id) {
   if (!title_id || std::strlen(title_id) < 4)
     return false;

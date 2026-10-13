@@ -143,6 +143,8 @@
     "overlay.brand.desc": "แสดง \"4aLse Benchmarks\" ที่ด้านบนของแผง",
     "overlay.fps_pill": "ป้าย FPS ที่มุมอีกด้าน",
     "overlay.fps_pill.desc": "แสดงตัวนับ FPS ขนาดเล็กที่มุมตรงข้ามด้วย",
+    "overlay.system": "แถวระบบ (CPU, GPU, หน่วยความจำ)",
+    "overlay.system.desc": "แสดงโหลดและอุณหภูมิ CPU อุณหภูมิ SoC และกำลังไฟ GPU รวมถึงการใช้หน่วยความจำใต้กราฟ",
     "overlay.gpu": "GPU",
     "overlay.gpu.desc": "แสดงอุณหภูมิ GPU และการใช้ VRAM",
     "overlay.fps": "FPS",

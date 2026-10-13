@@ -143,6 +143,8 @@
     "overlay.brand.desc": "パネル上部に「4aLse Benchmarks」を表示します",
     "overlay.fps_pill": "反対側の隅に FPS 表示",
     "overlay.fps_pill.desc": "小さな FPS カウンターを反対側の隅にも表示します",
+    "overlay.system": "システム行（CPU、GPU、メモリ）",
+    "overlay.system.desc": "グラフの下にCPU負荷と温度、SoC温度とGPU電力、メモリ使用量を表示",
     "overlay.gpu": "GPU",
     "overlay.gpu.desc": "GPU 温度とVRAM使用量を表示します",
     "overlay.fps": "FPS",

@@ -50,6 +50,21 @@ struct HybridOut {
  */
 HybridOut compose(const HybridIn &in);
 
+/* PS4 titles: the flip-submission detour and the /dev/dce scanout counter. */
+struct BcIn {
+  bool bc_ok = false;
+  float bc = 0.f;
+  bool scanout_ok = false;
+  float scanout = 0.f;
+};
+
+/**
+ * PS4-title value. The detour counts flip submissions, which a game can
+ * issue more often than frames reach the screen; scanout can never exceed
+ * what was displayed. With both live, take the lower one. With one, take it.
+ */
+HybridOut compose_bc(const BcIn &in);
+
 /**
  * Running count of displayed frames, published so readers can take exact
  * rates over their own windows. Each valid tick adds rate × tick length, so

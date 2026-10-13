@@ -143,6 +143,8 @@
     "overlay.brand.desc": "Εμφάνιση «4aLse Benchmarks» στο πάνω μέρος του πάνελ",
     "overlay.fps_pill": "Ένδειξη FPS στην άλλη γωνία",
     "overlay.fps_pill.desc": "Εμφάνιση και του μικρού μετρητή FPS στην απέναντι γωνία",
+    "overlay.system": "Γραμμή συστήματος (CPU, GPU, μνήμη)",
+    "overlay.system.desc": "Εμφάνιση φόρτου και θερμοκρασίας CPU, θερμοκρασίας SoC και ισχύος GPU, και χρήσης μνήμης κάτω από τα γραφήματα",
     "overlay.gpu": "GPU",
     "overlay.gpu.desc": "Εμφάνιση θερμοκρασίας GPU και χρήσης VRAM",
     "overlay.fps": "FPS",

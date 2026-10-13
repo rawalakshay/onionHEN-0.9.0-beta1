@@ -143,6 +143,8 @@
     "overlay.brand.desc": "Afișează „4aLse Benchmarks” în partea de sus a panoului",
     "overlay.fps_pill": "Indicator FPS în celălalt colț",
     "overlay.fps_pill.desc": "Afișează și micul contor FPS în colțul opus",
+    "overlay.system": "Rând sistem (CPU, GPU, memorie)",
+    "overlay.system.desc": "Afișează încărcarea și temperatura CPU, temperatura SoC și puterea GPU, și utilizarea memoriei sub grafice",
     "overlay.gpu": "GPU",
     "overlay.gpu.desc": "Afișați temperatura GPU și utilizarea VRAM",
     "overlay.fps": "FPS",

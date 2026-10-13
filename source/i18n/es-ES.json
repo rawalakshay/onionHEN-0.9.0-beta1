@@ -143,6 +143,8 @@
     "overlay.brand.desc": "Mostrar «4aLse Benchmarks» en la parte superior del panel",
     "overlay.fps_pill": "Indicador de FPS en la otra esquina",
     "overlay.fps_pill.desc": "Mostrar también el pequeño contador de FPS en la esquina opuesta",
+    "overlay.system": "Fila del sistema (CPU, GPU, memoria)",
+    "overlay.system.desc": "Mostrar carga y temperatura de la CPU, temperatura del SoC y potencia de la GPU, y uso de memoria bajo las gráficas",
     "overlay.gpu": "GPU",
     "overlay.gpu.desc": "Mostrar la temperatura de la GPU y el uso de VRAM",
     "overlay.fps": "FPS",

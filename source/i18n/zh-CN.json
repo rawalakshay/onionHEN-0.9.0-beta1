@@ -143,6 +143,8 @@
     "overlay.brand.desc": "在面板顶部显示“4aLse Benchmarks”",
     "overlay.fps_pill": "另一角显示 FPS 标签",
     "overlay.fps_pill.desc": "同时在对侧角落显示小型 FPS 计数",
+    "overlay.system": "系统行（CPU、GPU、内存）",
+    "overlay.system.desc": "在图表下方显示 CPU 负载和温度、SoC 温度和 GPU 功耗，以及内存使用量",
     "overlay.gpu": "GPU",
     "overlay.gpu.desc": "显示 GPU 温度与显存占用",
     "overlay.fps": "FPS",
