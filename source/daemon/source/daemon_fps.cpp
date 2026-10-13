@@ -381,12 +381,8 @@ void *vsync_fps_sampler_thread(void *args) noexcept {
 
   while (!g_stack_shutting_down.load(std::memory_order_acquire)) {
     const onion::Settings cfg = g_settings.snapshot();
-    /* The FPS pill (minimal level or companion) counts whatever
-     * overlay.show_fps says. */
-    const bool enabled =
-        cfg.overlay_enabled &&
-        (cfg.overlay_fps || cfg.overlay_fps_pill ||
-         cfg.overlay_detail == onion::kOverlayDetailMinimal);
+    /* The overlay is performance-only: sample whenever it is on. */
+    const bool enabled = cfg.overlay_enabled;
     if (last_enabled != static_cast<int>(enabled)) {
       LOG_TRACE("fps-diag: vsync config overlay=%d fps=%d enabled=%d",
                cfg.overlay_enabled ? 1 : 0, cfg.overlay_fps ? 1 : 0,
@@ -512,6 +508,7 @@ void *fps_sampler_thread(void *args) noexcept {
   uint64_t last_diag_ns = 0;
   uint64_t last_publish_diag_ns = 0;
   uint64_t last_fallback_diag_ns = 0;
+  uint64_t last_probe_ns = 0;
 
   (void)onion::fps::publish_open();
 
@@ -522,12 +519,8 @@ void *fps_sampler_thread(void *args) noexcept {
       last_cfg_check = now_wall;
     }
     const onion::Settings cfg = g_settings.snapshot();
-    /* The FPS pill (minimal level or companion) counts whatever
-     * overlay.show_fps says. */
-    const bool enabled =
-        cfg.overlay_enabled &&
-        (cfg.overlay_fps || cfg.overlay_fps_pill ||
-         cfg.overlay_detail == onion::kOverlayDetailMinimal);
+    /* The overlay is performance-only: sample whenever it is on. */
+    const bool enabled = cfg.overlay_enabled;
     if (last_enabled != static_cast<int>(enabled)) {
       LOG_DEBUG("fps-diag: render config overlay=%d fps=%d enabled=%d",
                cfg.overlay_enabled ? 1 : 0, cfg.overlay_fps ? 1 : 0,
@@ -814,6 +807,28 @@ void *fps_sampler_thread(void *args) noexcept {
                  tid.c_str(), sample.pid, sample.valid ? 1 : 0, sample.fps,
                  static_cast<unsigned>(sample.source), dead_ticks);
       last_publish_valid = static_cast<int>(sample.valid);
+    }
+    /* TEMPORARY: INFO-level FPS source summary so a default log level shows
+     * which counter the overlay value comes from. */
+    {
+      const uint64_t now_ns = monotonic_ns();
+      if (now_ns != 0 && (last_probe_ns == 0 || now_ns - last_probe_ns >= 5000000000ULL)) {
+        last_probe_ns = now_ns;
+        LOG_INFO("fpsprobe: tid=%s pid=%d out=%.2f raw=%.2f valid=%d src=0x%02x "
+                 "fallback=%d ring=%s/%.2f(d%llu) global=%s/%.2f(d%llu) "
+                 "vsync=%s/%.2f cal=%u avg=%.2f ready=%d multipass=%d",
+                 tid.c_str(), static_cast<int>(cached_pid), sample.fps, raw_fps,
+                 sample.valid ? 1 : 0, static_cast<unsigned>(sample.source),
+                 used_vsync_fallback ? 1 : 0,
+                 rate_status_name(ring_rate_diag.status), ring_rate_diag.raw_hz,
+                 static_cast<unsigned long long>(ring_rate_diag.delta),
+                 rate_status_name(global_rate_diag.status),
+                 global_rate_diag.raw_hz,
+                 static_cast<unsigned long long>(global_rate_diag.delta),
+                 vsync_read_status_name(vsync_diag.status), vsync_diag.fps,
+                 calibration.samples, calibration.average(),
+                 calibration.ready ? 1 : 0, calibration.multipass ? 1 : 0);
+      }
     }
     if (diag_due(last_diag_ns)) {
       LOG_DEBUG("fps-diag: render-source tid=%s app=%d pid=%d name=%s alive=%d "

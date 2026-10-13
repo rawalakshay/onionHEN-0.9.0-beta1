@@ -790,10 +790,9 @@ void append_toolbox_display_group(ps5ui::Group& g) {
                                toolbox_i18n::tr("overlay.font.large"), "2");
                    },
                    toolbox_i18n::tr("overlay.font.sub"),
-                   toolbox_val("id_overlay_font_size"))
-             .link("id_overlay_items", toolbox_i18n::tr("overlay.items"),
-                   "overlay_metrics.xml",
-                   toolbox_i18n::tr("overlay.items.sub"));
+                   toolbox_val("id_overlay_font_size"));
+         /* The overlay is performance-only, so the CPU / GPU / RAM / IP / fan
+          * item page (overlay_metrics.xml) is no longer linked. */
        },
        toolbox_i18n::tr("overlay.group.sub"), kIconOverlay,
        "id_overlay_enabled")

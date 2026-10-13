@@ -184,13 +184,17 @@ namespace scene = onion::overlay::scene;
 /* Latest numeric readings and the frame-time history the scene draws. */
 scene::Readings g_readings;
 scene::Histories g_history;
-scene::FpsStats g_fps_stats;
+/* Frame spans from the daemon's running frame count: FPS, AVG, LOW, frame
+ * times. */
+scene::FrameTimeline g_timeline;
 /* 20 buckets × 250 ms: a new frame cap must hold ~5 s before it sticks. */
 scene::TargetTracker g_fps_target{20};
 /* Exact per-bucket rate from the daemon's running frame count. */
 scene::FrameCountWindow g_frame_window;
-/* Stand-in rate for a bucket with no frames at all (a 2 s frame time). */
-constexpr float kFrozenBucketFps = 0.5f;
+/* Older daemons publish only a smoothed rate: integrate it into a running
+ * count of our own so the same timeline serves both. */
+uint64_t g_synth_frames_milli = 0;
+uint64_t g_synth_ns = 0;
 /* The game the FPS stats belong to (title + pid, so a relaunch starts over). */
 std::string g_fps_title;
 int32_t g_fps_pid = 0;
@@ -212,13 +216,12 @@ constexpr int64_t kFpsSessionEndSeconds = 10;
 
 bool detail_is(int detail) { return g_settings.overlay_detail == detail; }
 
-/* The pill (minimal level or companion) always shows FPS; Full always shows
- * CPU, IP and fan. */
-bool wants_fps() {
-  return g_settings.overlay_fps || g_settings.overlay_fps_pill ||
-         detail_is(onion::kOverlayDetailMinimal);
+/* The overlay is performance-only: FPS whenever it is on. CPU, GPU, RAM, IP
+ * and fan are only sampled for the legacy edge bar. */
+bool wants_fps() { return g_settings.overlay_enabled; }
+bool wants_other_metrics() {
+  return kOverlayLegacyBarFallback && !detail_is(onion::kOverlayDetailMinimal);
 }
-bool wants_other_metrics() { return !detail_is(onion::kOverlayDetailMinimal); }
 bool wants_cpu() {
   return wants_other_metrics() &&
          (g_settings.overlay_cpu || g_settings.all_cpu_usage ||
@@ -259,6 +262,13 @@ int64_t monotonic_ms() {
   OrbisKernelTimespec ts{};
   sceKernelClockGettime(kClockIdRealtime, &ts);
   return ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+}
+
+uint64_t monotonic_ns() {
+  OrbisKernelTimespec ts{};
+  sceKernelClockGettime(kClockIdRealtime, &ts);
+  return static_cast<uint64_t>(ts.tv_sec) * 1000000000ull +
+         static_cast<uint64_t>(ts.tv_nsec);
 }
 
 MonoObject *find_label(const char *widget_name) {
@@ -647,51 +657,31 @@ void update_overlay_metrics(unsigned int idle_tid[kCpuCores], int& current_bank,
   if (!g_settings.overlay_enabled)
     return;
 
-  scene::Readings &r = g_readings;
-  r.cpu_valid = sample_cpu_usage(idle_tid, current_bank, cpu_usage, cpu_usage_sz);
-  if (r.cpu_valid) {
-    float avg = 0.f;
-    for (int i = 0; i < kCpuCores; i++) {
-      r.cpu_core[i] = Usage[i];
-      avg += Usage[i];
-    }
-    r.cpu_avg = avg / static_cast<float>(kCpuCores);
-    /* A zero time delta between banks yields NaN; show a dash instead. */
-    if (!std::isfinite(r.cpu_avg))
-      r.cpu_valid = false;
-  }
+  (void)sample_cpu_usage(idle_tid, current_bank, cpu_usage, cpu_usage_sz);
 
   if (wants_ram()) {
-    r.ram_valid = Get_Page_Table_Stats(kVmSystem, kPageTableRam, &RAM.Used,
-                                       &RAM.Free, &RAM.Total);
+    Get_Page_Table_Stats(kVmSystem, kPageTableRam, &RAM.Used, &RAM.Free,
+                         &RAM.Total);
     snprintf(ram_str, ram_sz, "%u MB", RAM.Used);
-    r.ram_used_mb = RAM.Used;
-    r.ram_total_mb = RAM.Total;
   }
 
   if (wants_gpu()) {
     int soc_temp = 0;
-    r.soc_temp_valid = sceKernelGetSocSensorTemperature(0, &soc_temp) == 0;
-    r.soc_temp = soc_temp;
+    sceKernelGetSocSensorTemperature(0, &soc_temp);
     snprintf(gpu_temp, gpu_temp_sz, "%dC", soc_temp);
-    r.gpu_valid = Get_Page_Table_Stats(kVmSystem, kPageTableVram, &VRAM.Used,
-                                       &VRAM.Free, &VRAM.Total);
-    r.vram_used_mb = VRAM.Used;
-    r.vram_total_mb = VRAM.Total;
+    Get_Page_Table_Stats(kVmSystem, kPageTableVram, &VRAM.Used, &VRAM.Free,
+                         &VRAM.Total);
     VRAM.Percentage =
         (VRAM.Total > 0) ? ((float)VRAM.Used / (float)VRAM.Total) * 100.0f : 0.f;
     snprintf(gpu_usage, gpu_usage_sz, "%.0f%%", VRAM.Percentage);
   }
 
-  if (wants_ip()) {
+  if (wants_ip())
     (void)onion_net_get_ip_address(ip_address, ip_sz);
-    r.ip = ip_address;
-  }
 
   if (wants_cpu()) {
     int cpu_t = 0;
-    r.cpu_temp_valid = sceKernelGetCpuTemperature(&cpu_t) == 0;
-    r.cpu_temp = cpu_t;
+    sceKernelGetCpuTemperature(&cpu_t);
     snprintf(cpu_temp, cpu_temp_sz, "%dC", cpu_t);
   }
 
@@ -699,20 +689,15 @@ void update_overlay_metrics(unsigned int idle_tid[kCpuCores], int& current_bank,
     uint16_t duty = 0;
     uint64_t chassis = 0;
     if (sceKernelGetCurrentFanDuty &&
-        sceKernelGetCurrentFanDuty(&duty, &chassis) == 0) {
-      snprintf(fan_str, fan_sz, "%.0f%%",
-               (double)duty * 100.0 / 1024.0);
-      r.fan_valid = true;
-      r.fan_pct = static_cast<float>(duty) * 100.0f / 1024.0f;
-    } else {
+        sceKernelGetCurrentFanDuty(&duty, &chassis) == 0)
+      snprintf(fan_str, fan_sz, "%.0f%%", (double)duty * 100.0 / 1024.0);
+    else
       snprintf(fan_str, fan_sz, "--%%");
-      r.fan_valid = false;
-    }
   }
 }
 
-/** Read the daemon's FPS sample and keep per-game stats and the frame-time
- *  history (one bucket per scene::kBucketMs). */
+/** Read the daemon's FPS sample into the frame timeline, then derive FPS,
+ *  frame time, AVG, LOW and both chart histories from it. */
 void sample_fps() {
   scene::Readings &r = g_readings;
   const int64_t now = monotonic_seconds();
@@ -721,48 +706,74 @@ void sample_fps() {
       sample.fps < 1.f) {
     if (g_fps_tracking && now - g_fps_last_valid_s > kFpsSessionEndSeconds)
       g_fps_tracking = false;
-    if (r.fps_valid && now - g_fps_last_valid_s <= kFpsGraceSeconds) {
-      r.session_s = static_cast<int>(now - g_fps_start_s);
+    if (r.fps_valid && now - g_fps_last_valid_s <= kFpsGraceSeconds)
       return; /* hold the last reading through a short gap */
-    }
     r.fps_valid = false;
     r.title_id.clear();
-    r.session_s = -1;
     return;
   }
 
   const std::string title(sample.title_id,
                           strnlen(sample.title_id, sizeof(sample.title_id)));
   if (!g_fps_tracking || title != g_fps_title || sample.pid != g_fps_pid) {
-    /* New game or relaunch: average, low, graph, target and clock restart. */
+    /* New game or relaunch: every window, chart and the target restart. */
     g_fps_title = title;
     g_fps_pid = sample.pid;
     g_fps_tracking = true;
     g_fps_start_s = now;
-    g_fps_stats.clear();
-    g_history.frame_ms.clear();
+    g_timeline.reset();
+    g_history = scene::Histories{};
     g_fps_target.reset();
     g_frame_window.reset();
     g_fps_last_bucket_ms = 0;
+    g_synth_ns = 0;
     r.fps = sample.fps;
+    r.frame_ms = 1000.0f / sample.fps;
+    r.frame_ms_max = -1.0f;
     r.fps_avg = sample.fps;
     r.fps_low = sample.fps;
     r.fps_target = scene::infer_target(sample.fps);
   }
   g_fps_last_valid_s = now;
-  /* Daemons that publish the running frame count give exact per-bucket
-   * rates; older ones only the smoothed rate, sampled per new publish. */
+
+  /* Daemons that publish the running frame count feed the timeline
+   * directly; for older ones, integrate the smoothed rate per new publish. */
   const bool frame_count = sample.ext_layout == ONION_FPS_EXT_FRAMES;
+  uint32_t epoch = sample.ext_epoch;
+  uint64_t frames_milli = sample.frames_milli;
+  uint64_t mono_ns = sample.frames_mono_ns;
   if (!frame_count) {
-    if (sample.seq != g_fps_last_seq) {
-      g_fps_last_seq = sample.seq;
-      g_fps_stats.push(sample.fps);
-    }
-    r.fps = sample.fps;
+    if (sample.seq == g_fps_last_seq && g_synth_ns != 0)
+      return;
+    g_fps_last_seq = sample.seq;
+    const uint64_t t = monotonic_ns();
+    if (g_synth_ns != 0 && t > g_synth_ns)
+      g_synth_frames_milli += static_cast<uint64_t>(
+          static_cast<double>(sample.fps) * static_cast<double>(t - g_synth_ns) /
+          1e6);
+    g_synth_ns = t;
+    epoch = 0;
+    frames_milli = g_synth_frames_milli;
+    mono_ns = t;
   }
-  r.fps_valid = true;
+
+  const int added = g_timeline.push(epoch, frames_milli, mono_ns);
+  for (int i = g_timeline.size() - added; i < g_timeline.size(); ++i) {
+    const scene::FrameTimeline::Span &s = g_timeline.at(i);
+    if (s.frames > 0.0f)
+      g_history.frame_ms.push(s.frame_ms);
+  }
+
+  const float fps = g_timeline.rate(scene::kFpsWindowNs);
+  if (fps > 0.0f) {
+    r.fps = fps;
+    r.frame_ms = 1000.0f / fps;
+  }
+  r.frame_ms_max = g_timeline.max_frame_ms(scene::kMaxWindowNs);
+  r.fps_valid = r.fps >= 1.0f;
   r.title_id = title;
-  r.session_s = static_cast<int>(now - g_fps_start_s);
+  /* Spans average ~33 ms of frames, so LOW is not a per-frame 1% low. */
+  r.low_per_frame = false;
 
   const int64_t now_ms = monotonic_ms();
   if (now_ms - g_fps_last_bucket_ms >= scene::kBucketMs) {
@@ -771,20 +782,18 @@ void sample_fps() {
     if (frame_count) {
       const float exact = g_frame_window.take(
           sample.ext_epoch, sample.frames_milli, sample.frames_mono_ns);
-      if (exact >= 0.0f) {
-        /* A frozen bucket (0 frames) still has to show as a stutter. */
-        bucket_fps = std::max(exact, kFrozenBucketFps);
-        g_fps_stats.push(bucket_fps);
-      } else if (g_fps_stats.size() == 0) {
-        g_fps_stats.push(sample.fps); /* first bucket: seed the stats */
-      }
-      r.fps = bucket_fps;
+      /* No usable window yet: skip the bucket rather than invent one. */
+      bucket_fps = exact >= 0.0f ? exact : -1.0f;
     }
-    if (bucket_fps > 0.0f)
-      g_history.frame_ms.push(1000.0f / bucket_fps);
-    /* Window stats at bucket rate, not every read (nth_element). */
-    r.fps_avg = g_fps_stats.average();
-    r.fps_low = g_fps_stats.low_1pct();
+    if (bucket_fps >= 0.0f)
+      g_history.fps.push(bucket_fps);
+    /* Window stats at bucket rate, not every read (sorting). */
+    const float avg = g_timeline.rate(scene::kStatsWindowNs);
+    const float low = g_timeline.low_fps(scene::kStatsWindowNs);
+    if (avg > 0.0f)
+      r.fps_avg = avg;
+    if (low > 0.0f)
+      r.fps_low = low;
     r.fps_target = g_fps_target.update(r.fps_avg);
   }
 }
@@ -802,14 +811,6 @@ void scene_render() {
   o.brand = g_settings.overlay_brand;
   o.fps_pill = g_settings.overlay_fps_pill;
   o.margin = static_cast<float>(g_settings.overlay_margin);
-  o.show_fps = g_settings.overlay_fps;
-  o.show_cpu = g_settings.overlay_cpu;
-  o.show_gpu = g_settings.overlay_gpu;
-  o.show_ram = g_settings.overlay_ram;
-  o.show_ip = g_settings.overlay_ip;
-  o.show_fan = g_settings.overlay_fan;
-  o.per_core_cpu = g_settings.all_cpu_usage;
-  o.order = g_settings.overlay_order;
   overlay_scene_apply(scene::build_scene(o, r, g_history));
 }
 
@@ -817,11 +818,12 @@ void scene_render() {
 
 void overlay_scene_reset_state() {
   g_history = scene::Histories{};
-  g_fps_stats.clear();
+  g_timeline.reset();
   g_fps_target.reset();
   g_frame_window.reset();
   g_fps_tracking = false;
   g_fps_last_bucket_ms = 0;
+  g_synth_ns = 0;
   g_readings.fps_valid = false;
 }
 
@@ -863,7 +865,11 @@ void OnRender_Hook(MonoObject* instance) {
     }
   }
 
-  if (frames_until_update <= 0) {
+  /* System metrics only feed the legacy edge bar; the scene overlay shows
+   * performance only. */
+  if (!kOverlayLegacyBarFallback) {
+    frames_until_update = 0;
+  } else if (frames_until_update <= 0) {
     update_overlay_metrics(idle_thread_id, current_bank, cpu_temp,
                            sizeof(cpu_temp), cpu_usage, sizeof(cpu_usage),
                            gpu_temp, sizeof(gpu_temp), gpu_usage,

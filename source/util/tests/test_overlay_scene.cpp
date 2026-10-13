@@ -27,6 +27,7 @@ sc::Options base_options(sc::Detail detail = sc::Detail::Panel) {
   o.detail = detail;
   o.font_pt = 18;
   o.margin = 0.0f;
+  o.opacity = 85;
   return o;
 }
 
@@ -34,33 +35,21 @@ sc::Readings live_readings() {
   sc::Readings r{};
   r.fps_valid = true;
   r.fps = 60.0f;
+  r.frame_ms = 1000.0f / 60.0f;
+  r.frame_ms_max = 33.4f;
   r.fps_avg = 59.4f;
   r.fps_low = 48.0f;
   r.fps_target = 60;
-  r.cpu_valid = true;
-  r.cpu_avg = 32.0f;
-  r.cpu_core = {10, 20, 30, 40, 50, 60, 70, 80};
-  r.cpu_temp_valid = true;
-  r.cpu_temp = 61;
-  r.gpu_valid = true;
-  r.vram_used_mb = 4120;
-  r.vram_total_mb = 8240;
-  r.soc_temp_valid = true;
-  r.soc_temp = 58;
-  r.ram_valid = true;
-  r.ram_used_mb = 9200;
-  r.ram_total_mb = 16000;
-  r.ip = "192.168.1.20";
-  r.fan_valid = true;
-  r.fan_pct = 45.0f;
   r.title_id = "PPSA01234";
-  r.session_s = 754;
   return r;
 }
 
+/* Full charts: 40 FPS buckets and 90 frame samples at a steady rate. */
 sc::Histories flat_history(float fps = 60.0f) {
   sc::Histories h{};
-  for (int i = 0; i < sc::kGraphPoints; ++i)
+  for (int i = 0; i < sc::kFpsBars; ++i)
+    h.fps.push(fps);
+  for (int i = 0; i < sc::kFrameBars; ++i)
     h.frame_ms.push(1000.0f / fps);
   return h;
 }
@@ -113,17 +102,23 @@ const char *text_of(const sc::Scene &s, const std::string &id) {
   return t ? t->text.c_str() : nullptr;
 }
 
-int test_empty_when_nothing_enabled(void) {
-  for (sc::Detail d : {sc::Detail::Compact, sc::Detail::Panel}) {
-    sc::Options o = base_options(d);
-    o.show_fps = o.show_cpu = o.show_gpu = o.show_ram = false;
-    o.show_ip = o.show_fan = o.per_core_cpu = false;
-    sc::Scene s = sc::build_scene(o, live_readings(), {});
-    TEST_ASSERT_TRUE(s.rects.empty() && s.texts.empty());
-  }
+/* Everything inside the scene box. */
+bool contained(const sc::Scene &s) {
+  for (const sc::Rect &r : s.rects)
+    if (r.x < s.x - 0.5f || r.y < s.y - 0.5f || r.x + r.w > s.x + s.w + 0.5f ||
+        r.y + r.h > s.y + s.h + 0.5f)
+      return false;
+  for (const sc::Text &t : s.texts)
+    if (t.x < s.x - 0.5f || t.y < s.y - 0.5f || t.x + t.w > s.x + s.w + 0.5f ||
+        t.y + t.h > s.y + s.h + 0.5f)
+      return false;
+  return true;
+}
+
+int test_empty_without_screen(void) {
   sc::Options o = base_options();
   o.screen_w = 0.0f;
-  sc::Scene s = sc::build_scene(o, live_readings(), {});
+  sc::Scene s = sc::build_scene(o, live_readings(), flat_history());
   TEST_ASSERT_TRUE(s.rects.empty() && s.texts.empty());
   return 0;
 }
@@ -135,6 +130,7 @@ int test_corner_placement_and_margin(void) {
     sc::Scene tl = sc::build_scene(o, live_readings(), flat_history());
     TEST_ASSERT_EQ_INT(as_int(margin), as_int(tl.x));
     TEST_ASSERT_EQ_INT(as_int(margin), as_int(tl.y));
+    TEST_ASSERT_TRUE(contained(tl));
 
     o.edge = BarEdge::Bottom;
     o.align = BarAlign::Right;
@@ -155,59 +151,88 @@ int test_opacity(void) {
   sc::Scene none = sc::build_scene(o, live_readings(), flat_history());
   TEST_ASSERT_TRUE(find_rect(none, "id_osc_bg") == nullptr);
   TEST_ASSERT_TRUE(find_rect(none, "id_osc_edge_t") == nullptr);
-  TEST_ASSERT_TRUE(find_text(none, "id_osc_cpu_v") != nullptr);
+  TEST_ASSERT_TRUE(find_text(none, "id_osc_fps_v") != nullptr);
 
   for (int pct : {40, 65, 85}) {
     o.opacity = pct;
     sc::Scene s = sc::build_scene(o, live_readings(), flat_history());
-    TEST_ASSERT_TRUE(!s.rects.empty());
     const sc::Rect &bg = s.rects.front(); /* drawn first, under everything */
     TEST_ASSERT_STREQ("id_osc_bg", bg.id.c_str());
     TEST_ASSERT_EQ_INT(pct, as_int(bg.color.a * 100.0f));
     TEST_ASSERT_EQ_INT(as_int(s.w), as_int(bg.w));
     TEST_ASSERT_EQ_INT(as_int(s.h), as_int(bg.h));
-    TEST_ASSERT_TRUE(find_rect(s, "id_osc_edge_r") != nullptr);
   }
-  /* The old accent rail and brand square are gone. */
-  sc::Scene s = sc::build_scene(base_options(), live_readings(), flat_history());
-  TEST_ASSERT_EQ_INT(0, count_rect_prefix(s, "id_osc_rail"));
-  TEST_ASSERT_EQ_INT(0, count_rect_prefix(s, "id_osc_mark"));
   return 0;
 }
 
 int test_panel_values(void) {
-  sc::Options o = base_options();
-  o.show_ip = true;
-  o.show_fan = true;
-  sc::Scene s = sc::build_scene(o, live_readings(), flat_history());
+  sc::Histories h = flat_history();
+  h.fps.push(44.0f);
+  sc::Scene s = sc::build_scene(base_options(), live_readings(), h);
   TEST_ASSERT_TRUE(ids_unique(s));
   TEST_ASSERT_STREQ("PPSA01234", text_of(s, "id_osc_head_l"));
-  TEST_ASSERT_STREQ("12:34", text_of(s, "id_osc_head_r"));
+  TEST_ASSERT_STREQ("TARGET 60", text_of(s, "id_osc_head_r"));
   TEST_ASSERT_STREQ("60", text_of(s, "id_osc_fps_v"));
   TEST_ASSERT_STREQ("FPS", text_of(s, "id_osc_fps_l"));
-  TEST_ASSERT_STREQ("59", text_of(s, "id_osc_avg_v"));
-  TEST_ASSERT_STREQ("48", text_of(s, "id_osc_low_v"));
-  TEST_ASSERT_STREQ("LOW", text_of(s, "id_osc_low_l"));
+  TEST_ASSERT_STREQ("AVG", text_of(s, "id_osc_avg_l"));
+  TEST_ASSERT_STREQ("59.4", text_of(s, "id_osc_avg_v"));
+  TEST_ASSERT_STREQ("48.0", text_of(s, "id_osc_low_v"));
+  TEST_ASSERT_STREQ("FPS \xC2\xB7 LAST 10 S", text_of(s, "id_osc_fc_l"));
+  TEST_ASSERT_STREQ("MIN", text_of(s, "id_osc_fc_min_l"));
+  TEST_ASSERT_STREQ("44", text_of(s, "id_osc_fc_min_v"));
+  TEST_ASSERT_STREQ("MAX", text_of(s, "id_osc_fc_max_l"));
+  TEST_ASSERT_STREQ("60", text_of(s, "id_osc_fc_max_v"));
+  TEST_ASSERT_STREQ("FRAME TIME", text_of(s, "id_osc_tc_l"));
   TEST_ASSERT_STREQ("16.7", text_of(s, "id_osc_ft_v"));
   TEST_ASSERT_STREQ("ms", text_of(s, "id_osc_ft_u"));
-  TEST_ASSERT_STREQ("32%", text_of(s, "id_osc_cpu_v"));
-  TEST_ASSERT_STREQ("61\xC2\xB0", text_of(s, "id_osc_cpu_r"));
-  TEST_ASSERT_STREQ("4.0", text_of(s, "id_osc_gpu_v"));
-  TEST_ASSERT_STREQ("/ 8 GB", text_of(s, "id_osc_gpu_u"));
-  TEST_ASSERT_STREQ("58\xC2\xB0", text_of(s, "id_osc_gpu_r"));
-  TEST_ASSERT_STREQ("9.0", text_of(s, "id_osc_ram_v"));
-  TEST_ASSERT_STREQ("/ 15.6 GB", text_of(s, "id_osc_ram_u"));
-  TEST_ASSERT_STREQ("192.168.1.20", text_of(s, "id_osc_ip_v"));
-  TEST_ASSERT_STREQ("45%", text_of(s, "id_osc_fan_v"));
-  /* The hero runs in its own large font; labels are smaller than values. */
-  const sc::Text *hero = find_text(s, "id_osc_fps_v");
-  const sc::Text *cpu_l = find_text(s, "id_osc_cpu_l");
-  const sc::Text *cpu_v = find_text(s, "id_osc_cpu_v");
-  TEST_ASSERT_TRUE(hero && cpu_l && cpu_v);
-  TEST_ASSERT_TRUE(hero->pt > 2 * cpu_v->pt);
-  TEST_ASSERT_TRUE(cpu_l->pt < cpu_v->pt);
-  TEST_ASSERT_TRUE(same_color(sc::kLabel, cpu_l->color));
-  TEST_ASSERT_TRUE(same_color(sc::kText, cpu_v->color));
+  TEST_ASSERT_STREQ("33.4", text_of(s, "id_osc_ft_max_v"));
+  TEST_ASSERT_STREQ("60", text_of(s, "id_osc_ftarget_t"));
+  TEST_ASSERT_STREQ("16.7", text_of(s, "id_osc_tg1_t"));
+  TEST_ASSERT_STREQ("33.3", text_of(s, "id_osc_tg2_t"));
+  TEST_ASSERT_TRUE(contained(s));
+
+  /* Type scale: hero > AVG/LOW > frame time > sub-headings > header. */
+  const int hero = find_text(s, "id_osc_fps_v")->pt;
+  const int stat = find_text(s, "id_osc_avg_v")->pt;
+  const int ft = find_text(s, "id_osc_ft_v")->pt;
+  const int label = find_text(s, "id_osc_tc_l")->pt;
+  const int head = find_text(s, "id_osc_head_l")->pt;
+  TEST_ASSERT_TRUE(hero > stat && stat > ft && ft > label && label > head);
+  /* Every sub-heading shares one size and colour. */
+  for (const char *id : {"id_osc_fps_l", "id_osc_avg_l", "id_osc_low_l",
+                         "id_osc_fc_l", "id_osc_fc_min_l", "id_osc_fc_max_l",
+                         "id_osc_tc_l", "id_osc_ft_max_l"}) {
+    const sc::Text *t = find_text(s, id);
+    TEST_ASSERT_TRUE(t != nullptr);
+    TEST_ASSERT_EQ_INT(label, t->pt);
+    TEST_ASSERT_TRUE(same_color(sc::kHeading, t->color));
+  }
+
+  /* A three-digit FPS never runs into the AVG column, at any font size. */
+  for (int pt : {14, 18, 24}) {
+    sc::Options o = base_options();
+    o.font_pt = pt;
+    sc::Readings fast = live_readings();
+    fast.fps = 144.0f;
+    fast.fps_target = 120;
+    sc::Scene f = sc::build_scene(o, fast, flat_history(120.0f));
+    const sc::Text *unit = find_text(f, "id_osc_fps_l");
+    const sc::Text *avg = find_text(f, "id_osc_avg_l");
+    TEST_ASSERT_TRUE(unit && avg);
+    TEST_ASSERT_TRUE(unit->x + sc::detail::advance("FPS", unit->pt) < avg->x);
+  }
+  return 0;
+}
+
+int test_low_label(void) {
+  sc::Readings r = live_readings();
+  sc::Scene s = sc::build_scene(base_options(), r, flat_history());
+  TEST_ASSERT_STREQ("LOW", text_of(s, "id_osc_low_l"));
+  r.low_per_frame = true;
+  s = sc::build_scene(base_options(), r, flat_history());
+  TEST_ASSERT_STREQ("1% LOW", text_of(s, "id_osc_low_l"));
+  s = sc::build_scene(base_options(sc::Detail::Compact), r, flat_history());
+  TEST_ASSERT_STREQ("1% LOW", text_of(s, "id_osc_low_l"));
   return 0;
 }
 
@@ -216,16 +241,10 @@ int test_brand_header(void) {
   sc::Scene plain = sc::build_scene(o, live_readings(), flat_history());
   for (const sc::Text &t : plain.texts)
     TEST_ASSERT_TRUE(t.text != sc::kBrandText); /* off by default */
-
   o.brand = true;
   sc::Scene s = sc::build_scene(o, live_readings(), flat_history());
   TEST_ASSERT_STREQ(sc::kBrandText, text_of(s, "id_osc_head_l"));
-  TEST_ASSERT_STREQ("PPSA01234  12:34", text_of(s, "id_osc_head_r"));
-
-  sc::Readings r = live_readings();
-  r.session_s = 3723; /* 1:02:03 — title dropped so the clock fits */
-  s = sc::build_scene(o, r, flat_history());
-  TEST_ASSERT_STREQ("1:02:03", text_of(s, "id_osc_head_r"));
+  TEST_ASSERT_STREQ("TARGET 60", text_of(s, "id_osc_head_r"));
   return 0;
 }
 
@@ -234,80 +253,28 @@ int test_no_game(void) {
   sc::Readings r = live_readings();
   r.fps_valid = false;
   sc::Scene s = sc::build_scene(base_options(), r, flat_history());
-  TEST_ASSERT_STREQ("NO GAME DETECTED", text_of(s, "id_osc_fps_v"));
-  TEST_ASSERT_TRUE(find_text(s, "id_osc_avg_v") == nullptr);
-  TEST_ASSERT_EQ_INT(0, count_rect_prefix(s, "id_osc_col"));
   TEST_ASSERT_STREQ("NO GAME", text_of(s, "id_osc_head_l"));
-  TEST_ASSERT_TRUE(s.h < live.h);
-
-  /* FPS off and no brand: no header at all. */
-  sc::Options o = base_options();
-  o.show_fps = false;
-  s = sc::build_scene(o, live_readings(), flat_history());
-  TEST_ASSERT_TRUE(find_text(s, "id_osc_head_l") == nullptr);
+  TEST_ASSERT_STREQ("NO GAME DETECTED", text_of(s, "id_osc_fps_v"));
   TEST_ASSERT_TRUE(find_text(s, "id_osc_head_r") == nullptr);
-  TEST_ASSERT_TRUE(find_text(s, "id_osc_cpu_v") != nullptr);
+  TEST_ASSERT_TRUE(find_text(s, "id_osc_avg_v") == nullptr);
+  TEST_ASSERT_EQ_INT(0, count_rect_prefix(s, "id_osc_fbar"));
+  TEST_ASSERT_EQ_INT(0, count_rect_prefix(s, "id_osc_tbar"));
+  TEST_ASSERT_TRUE(s.h < live.h);
+  TEST_ASSERT_EQ_INT(as_int(live.w), as_int(s.w));
   return 0;
 }
 
-int test_non_finite_and_missing(void) {
+int test_non_finite(void) {
   sc::Readings r = live_readings();
-  r.cpu_avg = std::numeric_limits<float>::quiet_NaN();
   r.fps = std::numeric_limits<float>::infinity();
-  r.cpu_core[3] = std::numeric_limits<float>::quiet_NaN();
-  sc::Options o = base_options(sc::Detail::Full);
-  sc::Scene s = sc::build_scene(o, r, flat_history());
-  TEST_ASSERT_STREQ(kDash, text_of(s, "id_osc_cpu_v"));
+  sc::Scene s = sc::build_scene(base_options(), r, flat_history());
   TEST_ASSERT_STREQ("NO GAME DETECTED", text_of(s, "id_osc_fps_v"));
-  TEST_ASSERT_TRUE(find_rect(s, "id_osc_cpu_track") != nullptr);
-  TEST_ASSERT_TRUE(find_rect(s, "id_osc_cpu_fill") == nullptr);
 
   r = live_readings();
-  r.gpu_valid = false;
-  r.soc_temp_valid = false;
-  r.ram_valid = false;
-  r.ip.clear();
-  r.fan_valid = false;
-  o.show_ip = o.show_fan = true;
-  s = sc::build_scene(o, r, flat_history());
-  TEST_ASSERT_STREQ(kDash, text_of(s, "id_osc_gpu_v"));
-  TEST_ASSERT_TRUE(find_text(s, "id_osc_gpu_u") == nullptr);
-  TEST_ASSERT_STREQ(kDash, text_of(s, "id_osc_gpu_r"));
-  TEST_ASSERT_STREQ(kDash, text_of(s, "id_osc_ram_v"));
-  TEST_ASSERT_STREQ(kDash, text_of(s, "id_osc_ip_v"));
-  TEST_ASSERT_STREQ(kDash, text_of(s, "id_osc_fan_v"));
-  return 0;
-}
-
-int test_bars(void) {
-  sc::Readings r = live_readings();
-  sc::Scene s = sc::build_scene(base_options(), r, flat_history());
-  const sc::Rect *track = find_rect(s, "id_osc_gpu_track");
-  const sc::Rect *fill = find_rect(s, "id_osc_gpu_fill");
-  TEST_ASSERT_TRUE(track && fill);
-  TEST_ASSERT_EQ_INT(as_int(track->w * 0.5f), as_int(fill->w)); /* 4120/8240 */
-  TEST_ASSERT_EQ_INT(3, as_int(track->h));
-  TEST_ASSERT_TRUE(same_color(sc::kFill, fill->color));
-
-  r.ram_used_mb = 15000; /* 94% → nearly full */
+  r.frame_ms_max = std::numeric_limits<float>::quiet_NaN();
   s = sc::build_scene(base_options(), r, flat_history());
-  fill = find_rect(s, "id_osc_ram_fill");
-  TEST_ASSERT_TRUE(fill && same_color(sc::kWarn, fill->color));
-  return 0;
-}
-
-int test_temperature_colors(void) {
-  TEST_ASSERT_TRUE(same_color(sc::kText, sc::temp_color(50, sc::kCpuTempScale)));
-  TEST_ASSERT_TRUE(same_color(sc::kWarn, sc::temp_color(65, sc::kCpuTempScale)));
-  TEST_ASSERT_TRUE(same_color(sc::kBad, sc::temp_color(80, sc::kCpuTempScale)));
-  TEST_ASSERT_TRUE(same_color(sc::kWarn, sc::temp_color(80, sc::kGpuTempScale)));
-  TEST_ASSERT_TRUE(same_color(sc::kBad, sc::temp_color(85, sc::kGpuTempScale)));
-
-  sc::Readings r = live_readings();
-  r.soc_temp = 70;
-  sc::Scene s = sc::build_scene(base_options(), r, flat_history());
-  TEST_ASSERT_TRUE(same_color(sc::kWarn, find_text(s, "id_osc_gpu_r")->color));
-  TEST_ASSERT_TRUE(same_color(sc::kText, find_text(s, "id_osc_cpu_r")->color));
+  TEST_ASSERT_STREQ(kDash, text_of(s, "id_osc_ft_max_v"));
+  TEST_ASSERT_STREQ("60", text_of(s, "id_osc_fps_v"));
   return 0;
 }
 
@@ -320,195 +287,143 @@ int test_fps_state_colors(void) {
   sc::Readings r = live_readings();
   sc::Scene s = sc::build_scene(base_options(), r, flat_history());
   TEST_ASSERT_TRUE(same_color(sc::kText, find_text(s, "id_osc_fps_v")->color));
+  TEST_ASSERT_TRUE(same_color(sc::kText, find_text(s, "id_osc_avg_v")->color));
   /* 48 against a 60 cap is a warning; values only colour when off-target */
   TEST_ASSERT_TRUE(same_color(sc::kWarn, find_text(s, "id_osc_low_v")->color));
   r.fps = 35.0f;
+  r.frame_ms = 1000.0f / 35.0f;
   s = sc::build_scene(base_options(), r, flat_history());
   TEST_ASSERT_TRUE(same_color(sc::kBad, find_text(s, "id_osc_fps_v")->color));
+  TEST_ASSERT_TRUE(same_color(sc::kBad, find_text(s, "id_osc_ft_v")->color));
+
+  TEST_ASSERT_TRUE(same_color(sc::kGood, sc::frame_ms_color(16.7f, 60)));
+  TEST_ASSERT_TRUE(same_color(sc::kGood, sc::frame_ms_color(19.9f, 60)));
+  TEST_ASSERT_TRUE(same_color(sc::kWarn, sc::frame_ms_color(25.0f, 60)));
+  TEST_ASSERT_TRUE(same_color(sc::kWarn, sc::frame_ms_color(33.4f, 60)));
+  TEST_ASSERT_TRUE(same_color(sc::kBad, sc::frame_ms_color(50.0f, 60)));
+  TEST_ASSERT_TRUE(same_color(sc::kGood, sc::frame_ms_color(33.4f, 30)));
   return 0;
 }
 
-int test_order_and_dividers(void) {
-  sc::Options o = base_options();
-  o.order = {onion::overlay::kMetricMemory, onion::overlay::kMetricFps,
-             onion::overlay::kMetricCpu, onion::overlay::kMetricGpu,
-             onion::overlay::kMetricIp, onion::overlay::kMetricFan};
-  sc::Scene s = sc::build_scene(o, live_readings(), flat_history());
-  const sc::Text *ram = find_text(s, "id_osc_ram_l");
-  const sc::Text *fps = find_text(s, "id_osc_fps_v");
-  const sc::Text *cpu = find_text(s, "id_osc_cpu_l");
-  const sc::Text *gpu = find_text(s, "id_osc_gpu_l");
-  TEST_ASSERT_TRUE(ram && fps && cpu && gpu);
-  TEST_ASSERT_TRUE(ram->y < fps->y && fps->y < cpu->y && cpu->y < gpu->y);
-  /* lines | FPS block | lines: a rule at each switch, none between lines */
-  TEST_ASSERT_EQ_INT(2, count_rect_prefix(s, "id_osc_div"));
-
-  s = sc::build_scene(base_options(), live_readings(), flat_history());
-  TEST_ASSERT_EQ_INT(1, count_rect_prefix(s, "id_osc_div"));
-
-  /* Compact follows the same order. */
-  o.detail = sc::Detail::Compact;
-  s = sc::build_scene(o, live_readings(), flat_history());
-  TEST_ASSERT_TRUE(find_text(s, "id_osc_ram_l")->x <
-                   find_text(s, "id_osc_fps_v")->x);
-  TEST_ASSERT_TRUE(find_text(s, "id_osc_fps_v")->x <
-                   find_text(s, "id_osc_cpu_l")->x);
-  return 0;
-}
-
-int test_per_core_and_full(void) {
-  sc::Options o = base_options();
-  sc::Scene s = sc::build_scene(o, live_readings(), flat_history());
-  TEST_ASSERT_TRUE(find_text(s, "id_osc_cpu_c0_v") == nullptr);
-  TEST_ASSERT_TRUE(find_text(s, "id_osc_ip_v") == nullptr);
-
-  o.per_core_cpu = true;
-  s = sc::build_scene(o, live_readings(), flat_history());
-  TEST_ASSERT_STREQ("10  20  30  40", text_of(s, "id_osc_cpu_c0_v"));
-  TEST_ASSERT_STREQ("50  60  70  80", text_of(s, "id_osc_cpu_c1_v"));
-
-  /* Full forces per-core, IP and fan whatever the toggles say. */
-  o = base_options(sc::Detail::Full);
-  o.show_ip = o.show_fan = o.per_core_cpu = false;
-  s = sc::build_scene(o, live_readings(), flat_history());
-  TEST_ASSERT_TRUE(find_text(s, "id_osc_cpu_c0_v") != nullptr);
-  TEST_ASSERT_STREQ("192.168.1.20", text_of(s, "id_osc_ip_v"));
-  TEST_ASSERT_STREQ("45%", text_of(s, "id_osc_fan_v"));
-  TEST_ASSERT_TRUE(ids_unique(s));
-  return 0;
-}
-
-int test_frame_time_graph(void) {
+int test_fps_chart(void) {
   sc::Histories h{};
-  for (int i = 0; i < sc::kGraphPoints; ++i)
-    h.frame_ms.push(i % 2 ? 1000.0f / 60.0f : 1000.0f / 30.0f);
+  for (int i = 0; i < sc::kFpsBars; ++i)
+    h.fps.push(i == sc::kFpsBars - 1 ? 30.0f : 60.0f);
   sc::Scene s = sc::build_scene(base_options(), live_readings(), h);
-  TEST_ASSERT_EQ_INT(sc::kGraphPoints, count_rect_prefix(s, "id_osc_col"));
-  const sc::Rect *well = find_rect(s, "id_osc_graph_bg");
-  const sc::Rect *target = find_rect(s, "id_osc_target");
-  const sc::Rect *a = find_rect(s, "id_osc_col0"); /* 33.3 ms = 2× target */
-  const sc::Rect *b = find_rect(s, "id_osc_col1"); /* 16.7 ms = target */
-  TEST_ASSERT_TRUE(well && target && a && b);
-  /* Fixed 0 .. 2×target scale: 33 ms fills the graph, 16.7 ms half of it,
-   * and the target line sits on top of the 16.7 ms columns. */
-  TEST_ASSERT_EQ_INT(as_int(well->h), as_int(a->h));
-  TEST_ASSERT_EQ_INT(as_int(well->h * 0.5f), as_int(b->h));
-  TEST_ASSERT_EQ_INT(as_int(b->y), as_int(target->y));
-  /* Newest column ends at the right edge. */
-  const sc::Rect *last = find_rect(s, "id_osc_col39");
-  TEST_ASSERT_TRUE(last != nullptr);
-  TEST_ASSERT_EQ_INT(as_int(well->x + well->w), as_int(last->x + last->w));
+  TEST_ASSERT_EQ_INT(sc::kFpsBars, count_rect_prefix(s, "id_osc_fbar"));
+  const sc::Rect *base = find_rect(s, "id_osc_fbase");
+  const sc::Rect *line = find_rect(s, "id_osc_ftarget");
+  const sc::Rect *full = find_rect(s, "id_osc_fbar0");
+  const sc::Rect *dip = find_rect(s, "id_osc_fbar39");
+  TEST_ASSERT_TRUE(base && line && full && dip);
+  /* 0 .. 1.25× target: a bar at the target touches the target line. */
+  TEST_ASSERT_EQ_INT(as_int(line->y), as_int(full->y));
+  TEST_ASSERT_EQ_INT(as_int(base->y), as_int(full->y + full->h));
+  TEST_ASSERT_EQ_INT(as_int(full->h * 0.5f), as_int(dip->h));
+  TEST_ASSERT_TRUE(same_color(sc::kGood, full->color));
+  TEST_ASSERT_TRUE(same_color(sc::kBad, dip->color));
+  /* Newest bar ends at the right edge, minus the gap. */
+  TEST_ASSERT_TRUE(dip->x + dip->w <= base->x + base->w);
+  TEST_ASSERT_TRUE(dip->x + dip->w >= base->x + base->w - 3.0f);
 
-  /* A steady 60 with ±0.3 fps of noise stays flat instead of filling the
-   * graph (the old auto-scaled trend did). */
-  sc::Histories noisy{};
-  for (int i = 0; i < sc::kGraphPoints; ++i)
-    noisy.frame_ms.push(1000.0f / (i % 2 ? 59.7f : 60.3f));
-  s = sc::build_scene(base_options(), live_readings(), noisy);
-  const float h0 = find_rect(s, "id_osc_col0")->h;
-  const float h1 = find_rect(s, "id_osc_col1")->h;
-  TEST_ASSERT_TRUE(std::fabs(h0 - h1) <= 1.0f);
+  /* A short history fills from the right; ids follow the slot. */
+  sc::Histories few{};
+  few.fps.push(60.0f);
+  few.fps.push(60.0f);
+  s = sc::build_scene(base_options(), live_readings(), few);
+  TEST_ASSERT_EQ_INT(2, count_rect_prefix(s, "id_osc_fbar"));
+  TEST_ASSERT_TRUE(find_rect(s, "id_osc_fbar39") != nullptr);
+  TEST_ASSERT_TRUE(find_rect(s, "id_osc_fbar38") != nullptr);
+  TEST_ASSERT_TRUE(find_rect(s, "id_osc_fbar0") == nullptr);
+  /* No buckets yet: no MIN / MAX. */
+  s = sc::build_scene(base_options(), live_readings(), sc::Histories{});
+  TEST_ASSERT_TRUE(find_text(s, "id_osc_fc_min_v") == nullptr);
   return 0;
 }
 
-int test_stutter_columns(void) {
+int test_frame_time_chart(void) {
   sc::Histories h = flat_history();
-  h.frame_ms.push(1000.0f / 20.0f); /* one 50 ms hitch at a ~60 average */
+  h.frame_ms.push(25.0f);  /* a spike under 2× target */
+  h.frame_ms.push(50.0f);  /* 3× target: the top of the chart */
+  h.frame_ms.push(120.0f); /* off the scale: clamped */
   sc::Scene s = sc::build_scene(base_options(), live_readings(), h);
-  const sc::Rect *hitch = find_rect(s, "id_osc_col39");
-  const sc::Rect *fine = find_rect(s, "id_osc_col38");
-  TEST_ASSERT_TRUE(hitch && fine);
-  TEST_ASSERT_TRUE(same_color(sc::kBad, hitch->color));
-  TEST_ASSERT_TRUE(same_color(sc::kGraphColumn, fine->color));
-  /* Off the top of the 0..33 ms scale: clamped to the full height. */
-  TEST_ASSERT_EQ_INT(as_int(find_rect(s, "id_osc_graph_bg")->h),
-                     as_int(hitch->h));
+  TEST_ASSERT_EQ_INT(sc::kFrameBars, count_rect_prefix(s, "id_osc_tbar"));
+  const sc::Rect *base = find_rect(s, "id_osc_tbase");
+  const sc::Rect *g1 = find_rect(s, "id_osc_tg1");
+  const sc::Rect *g2 = find_rect(s, "id_osc_tg2");
+  const sc::Rect *flat = find_rect(s, "id_osc_tbar80");
+  const sc::Rect *warn = find_rect(s, "id_osc_tbar87");
+  const sc::Rect *top = find_rect(s, "id_osc_tbar88");
+  const sc::Rect *clip = find_rect(s, "id_osc_tbar89");
+  TEST_ASSERT_TRUE(base && g1 && g2 && flat && warn && top && clip);
+  /* 0 .. 3× target: 16.7 ms reaches the first guide. */
+  TEST_ASSERT_TRUE(std::fabs(g1->y - flat->y) <= 1.0f);
+  TEST_ASSERT_TRUE(g2->y < g1->y);
+  TEST_ASSERT_EQ_INT(as_int(top->h), as_int(clip->h));
+  TEST_ASSERT_TRUE(same_color(sc::kGood, flat->color));
+  TEST_ASSERT_TRUE(same_color(sc::kWarn, warn->color));
+  TEST_ASSERT_TRUE(same_color(sc::kBad, top->color));
+  TEST_ASSERT_TRUE(same_color(sc::kBad, clip->color));
+  /* Guide labels sit on a patch of panel colour above their line. */
+  const sc::Rect *patch = find_rect(s, "id_osc_tg1_bg");
+  TEST_ASSERT_TRUE(patch != nullptr);
+  TEST_ASSERT_EQ_INT(as_int(g1->y), as_int(patch->y + patch->h));
   return 0;
 }
 
-int test_compact_line(void) {
+int test_compact_strip(void) {
   sc::Options o = base_options(sc::Detail::Compact);
   o.align = BarAlign::Center;
   o.margin = 10.0f;
-  sc::Scene s = sc::build_scene(o, live_readings(), {});
+  sc::Scene s = sc::build_scene(o, live_readings(), flat_history());
   TEST_ASSERT_TRUE(ids_unique(s));
   TEST_ASSERT_STREQ("60", text_of(s, "id_osc_fps_v"));
   TEST_ASSERT_STREQ("16.7", text_of(s, "id_osc_ft_v"));
-  TEST_ASSERT_STREQ("32%", text_of(s, "id_osc_cpu_v"));
-  TEST_ASSERT_STREQ("61\xC2\xB0", text_of(s, "id_osc_cpu_t"));
-  TEST_ASSERT_STREQ("58\xC2\xB0", text_of(s, "id_osc_gpu_t"));
-  TEST_ASSERT_STREQ("VRAM", text_of(s, "id_osc_vram_l")); /* not "GPU %" */
-  TEST_ASSERT_STREQ("50%", text_of(s, "id_osc_vram_v"));
-  TEST_ASSERT_STREQ("9.0", text_of(s, "id_osc_ram_v"));
-  TEST_ASSERT_STREQ("GB", text_of(s, "id_osc_ram_u"));
-  /* Separators between the four groups are 1 px rects, not "|" glyphs. */
-  TEST_ASSERT_EQ_INT(3, count_rect_prefix(s, "id_osc_sep"));
-  for (const sc::Text &t : s.texts)
-    TEST_ASSERT_TRUE(t.text != "|");
-
-  /* The background hugs the content instead of spanning the screen. */
-  const sc::Rect *bg = find_rect(s, "id_osc_bg");
-  TEST_ASSERT_TRUE(bg != nullptr);
+  TEST_ASSERT_STREQ("59.4", text_of(s, "id_osc_avg_v"));
+  TEST_ASSERT_STREQ("LOW", text_of(s, "id_osc_low_l"));
+  TEST_ASSERT_STREQ("48.0", text_of(s, "id_osc_low_v"));
+  TEST_ASSERT_EQ_INT(sc::kStripBars, count_rect_prefix(s, "id_osc_sbar"));
+  TEST_ASSERT_TRUE(contained(s));
   TEST_ASSERT_TRUE(s.w < kW * 0.5f);
-  TEST_ASSERT_EQ_INT(as_int(s.w), as_int(bg->w));
   TEST_ASSERT_EQ_INT(as_int((kW - s.w) * 0.5f), as_int(s.x));
   TEST_ASSERT_EQ_INT(10, as_int(s.y));
-  float right = 0.0f;
-  for (const sc::Text &t : s.texts)
-    right = std::max(right, t.x);
-  TEST_ASSERT_TRUE(right < s.x + s.w);
-  return 0;
-}
 
-/* Values sit in fixed-width slots, so nothing moves as digits change. */
-int test_compact_slots_are_stable(void) {
-  sc::Options o = base_options(sc::Detail::Compact);
-  o.align = BarAlign::Center;
-  o.show_fan = true;
+  /* Values sit in fixed slots: nothing moves as digits change. */
   sc::Readings lo = live_readings();
   lo.fps = 9.0f;
-  lo.cpu_avg = 5.0f;
-  lo.cpu_temp = 9;
-  lo.soc_temp = 9;
-  lo.vram_used_mb = 10;
-  lo.ram_used_mb = 512;
-  lo.fan_pct = 0.0f;
+  lo.frame_ms = 111.1f;
+  lo.fps_avg = 9.5f;
+  lo.fps_low = 4.0f;
   sc::Readings hi = live_readings();
   hi.fps = 120.0f;
-  hi.cpu_avg = 100.0f;
-  hi.cpu_temp = 100;
-  hi.soc_temp = 100;
-  hi.vram_used_mb = hi.vram_total_mb;
-  hi.ram_used_mb = 15999;
-  hi.fan_pct = 100.0f;
-  sc::Scene a = sc::build_scene(o, lo, {});
-  sc::Scene b = sc::build_scene(o, hi, {});
+  hi.frame_ms = 8.3f;
+  hi.fps_avg = 119.9f;
+  hi.fps_low = 101.2f;
+  sc::Scene a = sc::build_scene(o, lo, flat_history());
+  sc::Scene b = sc::build_scene(o, hi, flat_history());
   TEST_ASSERT_EQ_INT(as_int(a.w), as_int(b.w));
-  TEST_ASSERT_EQ_INT(as_int(a.x), as_int(b.x));
   TEST_ASSERT_EQ_INT(static_cast<int>(a.texts.size()),
                      static_cast<int>(b.texts.size()));
   for (size_t i = 0; i < a.texts.size(); ++i) {
     TEST_ASSERT_STREQ(a.texts[i].id.c_str(), b.texts[i].id.c_str());
     TEST_ASSERT_EQ_INT(as_int(a.texts[i].x), as_int(b.texts[i].x));
-    TEST_ASSERT_EQ_INT(as_int(a.texts[i].w), as_int(b.texts[i].w));
   }
   /* Losing the game does not move anything either. */
   sc::Readings gone = live_readings();
   gone.fps_valid = false;
-  sc::Scene c = sc::build_scene(o, gone, {});
+  sc::Scene c = sc::build_scene(o, gone, flat_history());
   TEST_ASSERT_EQ_INT(as_int(a.w), as_int(c.w));
   TEST_ASSERT_STREQ(kDash, text_of(c, "id_osc_fps_v"));
+  TEST_ASSERT_EQ_INT(0, count_rect_prefix(c, "id_osc_sbar"));
   return 0;
 }
 
 int test_minimal_pill(void) {
   sc::Options o = base_options(sc::Detail::Minimal);
-  /* The pill is the FPS counter: metric toggles do not hide it. */
-  o.show_fps = o.show_cpu = o.show_gpu = o.show_ram = false;
   sc::Scene s = sc::build_scene(o, live_readings(), flat_history());
   TEST_ASSERT_STREQ("60", text_of(s, "id_osc_fps_v"));
   TEST_ASSERT_STREQ("FPS", text_of(s, "id_osc_fps_l"));
-  TEST_ASSERT_TRUE(find_text(s, "id_osc_cpu_v") == nullptr);
+  TEST_ASSERT_TRUE(find_text(s, "id_osc_avg_v") == nullptr);
   const sc::Rect *dot = find_rect(s, "id_osc_dot");
   TEST_ASSERT_TRUE(dot && same_color(sc::kGood, dot->color));
 
@@ -528,7 +443,6 @@ int test_minimal_pill(void) {
 }
 
 int test_companion_fps_pill(void) {
-  /* Off by default. */
   sc::Scene plain = sc::build_scene(base_options(), live_readings(), flat_history());
   TEST_ASSERT_TRUE(find_text(plain, "id_osc_pill_fps_v") == nullptr);
 
@@ -537,18 +451,13 @@ int test_companion_fps_pill(void) {
   o.margin = 10.0f;
   sc::Scene s = sc::build_scene(o, live_readings(), flat_history());
   TEST_ASSERT_TRUE(ids_unique(s));
-  /* The panel itself is unchanged and still owns the scene box. */
   TEST_ASSERT_EQ_INT(as_int(plain.w), as_int(s.w));
-  TEST_ASSERT_STREQ("60", text_of(s, "id_osc_fps_v")); /* panel hero */
   TEST_ASSERT_STREQ("60", text_of(s, "id_osc_pill_fps_v"));
-  /* Pill sits in the opposite (top-right) corner with its own background. */
   const sc::Rect *bg = find_rect(s, "id_osc_pill_bg");
   TEST_ASSERT_TRUE(bg != nullptr);
   TEST_ASSERT_EQ_INT(as_int(kW - 10.0f), as_int(bg->x + bg->w));
   TEST_ASSERT_EQ_INT(10, as_int(bg->y));
-  TEST_ASSERT_TRUE(find_rect(s, "id_osc_pill_dot") != nullptr);
 
-  /* Right-aligned overlay → pill on the left; bottom edge follows along. */
   o.align = BarAlign::Right;
   o.edge = BarEdge::Bottom;
   s = sc::build_scene(o, live_readings(), flat_history());
@@ -557,20 +466,24 @@ int test_companion_fps_pill(void) {
   TEST_ASSERT_EQ_INT(10, as_int(bg->x));
   TEST_ASSERT_EQ_INT(as_int(kH - 10.0f), as_int(bg->y + bg->h));
 
-  /* Works with compact, and still shows when every metric is hidden. */
-  o = base_options(sc::Detail::Compact);
-  o.fps_pill = true;
-  o.show_fps = o.show_cpu = o.show_gpu = o.show_ram = false;
-  s = sc::build_scene(o, live_readings(), {});
-  TEST_ASSERT_STREQ("60", text_of(s, "id_osc_pill_fps_v"));
-  TEST_ASSERT_TRUE(find_rect(s, "id_osc_bg") == nullptr);
-
   /* The minimal level already is the pill: no second copy. */
   o = base_options(sc::Detail::Minimal);
   o.fps_pill = true;
-  s = sc::build_scene(o, live_readings(), {});
+  s = sc::build_scene(o, live_readings(), flat_history());
   TEST_ASSERT_TRUE(find_text(s, "id_osc_pill_fps_v") == nullptr);
-  TEST_ASSERT_STREQ("60", text_of(s, "id_osc_fps_v"));
+  return 0;
+}
+
+int test_full_matches_panel(void) {
+  sc::Scene p = sc::build_scene(base_options(sc::Detail::Panel), live_readings(),
+                                flat_history());
+  sc::Scene f = sc::build_scene(base_options(sc::Detail::Full), live_readings(),
+                                flat_history());
+  TEST_ASSERT_EQ_INT(static_cast<int>(p.rects.size()),
+                     static_cast<int>(f.rects.size()));
+  TEST_ASSERT_EQ_INT(static_cast<int>(p.texts.size()),
+                     static_cast<int>(f.texts.size()));
+  TEST_ASSERT_EQ_INT(as_int(p.h), as_int(f.h));
   return 0;
 }
 
@@ -595,35 +508,41 @@ int test_target_inference(void) {
   TEST_ASSERT_EQ_INT(30, t.update(30.0f)); /* three in a row: switch */
   t.reset();
   TEST_ASSERT_EQ_INT(60, t.target());
+
+  /* A 30 cap moves the header pill and the chart guides. */
+  sc::Readings r = live_readings();
+  r.fps = r.fps_avg = 30.0f;
+  r.frame_ms = 1000.0f / 30.0f;
+  r.fps_target = 30;
+  sc::Scene s = sc::build_scene(base_options(), r, flat_history(30.0f));
+  TEST_ASSERT_STREQ("TARGET 30", text_of(s, "id_osc_head_r"));
+  TEST_ASSERT_STREQ("33.3", text_of(s, "id_osc_tg1_t"));
+  TEST_ASSERT_STREQ("66.7", text_of(s, "id_osc_tg2_t"));
   return 0;
 }
 
 int test_formatting(void) {
-  TEST_ASSERT_STREQ("9.6", sc::fmt_gb(9870).c_str());
-  TEST_ASSERT_STREQ("16", sc::fmt_gb_total(16384).c_str());
-  TEST_ASSERT_STREQ("12.3", sc::fmt_gb_total(12544).c_str());
-  TEST_ASSERT_STREQ("58\xC2\xB0", sc::fmt_temp(58).c_str());
-  TEST_ASSERT_STREQ("100%", sc::fmt_pct(140.0f).c_str());
   TEST_ASSERT_STREQ("60", sc::fmt_fps(59.6f).c_str()); /* never "59.6" */
+  TEST_ASSERT_STREQ("59.6", sc::fmt_fps1(59.6f).c_str());
   TEST_ASSERT_STREQ("16.7", sc::fmt_ms(1000.0f / 60.0f).c_str());
+  TEST_ASSERT_STREQ("999.9", sc::fmt_ms(5000.0f).c_str());
   return 0;
 }
 
-/* Renderer cost: everything on, full history. Today's rows panel is ~250. */
+/* Renderer cost with full charts. Each bar is a widget, so the panel is
+ * dominated by its 130 bars. */
 int test_widget_budget(void) {
-  sc::Histories h = flat_history();
   struct Case {
     sc::Detail detail;
     int max_widgets;
   } cases[] = {{sc::Detail::Minimal, 10},
-               {sc::Detail::Compact, 52},
-               {sc::Detail::Panel, 110},
-               {sc::Detail::Full, 150}};
+               {sc::Detail::Compact, 80},
+               {sc::Detail::Panel, 190},
+               {sc::Detail::Full, 190}};
   for (const Case &c : cases) {
     sc::Options o = base_options(c.detail);
-    o.show_ip = o.show_fan = true;
     o.brand = true;
-    sc::Scene s = sc::build_scene(o, live_readings(), h);
+    sc::Scene s = sc::build_scene(o, live_readings(), flat_history());
     TEST_ASSERT_TRUE(!s.rects.empty());
     TEST_ASSERT_TRUE(ids_unique(s));
     if (widget_count(s) > c.max_widgets)
@@ -639,31 +558,28 @@ int test_large_font_scales(void) {
   sc::Scene medium = sc::build_scene(o, live_readings(), flat_history());
   o.font_pt = 24;
   sc::Scene large = sc::build_scene(o, live_readings(), flat_history());
-  TEST_ASSERT_TRUE(large.w > medium.w);
+  TEST_ASSERT_EQ_INT(300, as_int(medium.w));
+  TEST_ASSERT_EQ_INT(400, as_int(large.w));
   TEST_ASSERT_TRUE(large.h > medium.h);
-  TEST_ASSERT_EQ_INT(as_int(284.0f * 24.0f / 18.0f), as_int(large.w));
-  TEST_ASSERT_EQ_INT(284, as_int(medium.w));
+  TEST_ASSERT_TRUE(contained(large));
   TEST_ASSERT_TRUE(find_text(large, "id_osc_fps_v")->pt >
                    find_text(medium, "id_osc_fps_v")->pt);
+  /* Small font still fits. */
+  o.font_pt = 14;
+  TEST_ASSERT_TRUE(contained(sc::build_scene(o, live_readings(), flat_history())));
   return 0;
 }
 
 int test_frame_count_window(void) {
   sc::FrameCountWindow w;
   const uint64_t t0 = 10000000000ull;
-  /* First read only sets the base. */
   TEST_ASSERT_TRUE(w.take(1, 1000000, t0) < 0.0f);
-  /* 250 ms later, 15 more frames: exactly 60 fps. */
   TEST_ASSERT_EQ_INT(60, as_int(w.take(1, 1015000, t0 + 250000000ull)));
-  /* Too short a window keeps the base for next time. */
   TEST_ASSERT_TRUE(w.take(1, 1016000, t0 + 300000000ull) < 0.0f);
   TEST_ASSERT_EQ_INT(30, as_int(w.take(1, 1022500, t0 + 500000000ull)));
-  /* No new frames over a window is a real freeze, not "no data". */
   TEST_ASSERT_EQ_INT(0, as_int(w.take(1, 1022500, t0 + 750000000ull)));
-  /* New epoch (game restarted): never difference across it. */
   TEST_ASSERT_TRUE(w.take(2, 500, t0 + 1000000000ull) < 0.0f);
   TEST_ASSERT_EQ_INT(40, as_int(w.take(2, 10500, t0 + 1250000000ull)));
-  /* A count going backwards re-bases too. */
   TEST_ASSERT_TRUE(w.take(2, 100, t0 + 1500000000ull) < 0.0f);
   w.reset();
   TEST_ASSERT_TRUE(w.take(2, 20000, t0 + 1750000000ull) < 0.0f);
@@ -684,18 +600,100 @@ int test_ring(void) {
   return 0;
 }
 
-int test_fps_stats(void) {
-  sc::FpsStats st;
-  TEST_ASSERT_EQ_INT(0, as_int(st.average()));
-  for (int i = 0; i < 99; ++i)
-    st.push(60.0f);
-  st.push(20.0f);
-  st.push(0.0f); /* ignored */
-  TEST_ASSERT_EQ_INT(100, st.size());
-  TEST_ASSERT_EQ_INT(20, as_int(st.low_1pct()));
-  TEST_ASSERT_EQ_INT(60, as_int(st.average())); /* 59.6 */
-  st.clear();
-  TEST_ASSERT_EQ_INT(0, st.size());
+/* Daemon publishes every 1/30 s; at 60 fps that is 2 frames per span. */
+constexpr uint64_t kTick = 33333333ull;
+
+int test_timeline_steady(void) {
+  sc::FrameTimeline tl;
+  uint64_t t = 5000000000ull, frames = 0;
+  TEST_ASSERT_EQ_INT(0, tl.push(1, frames, t)); /* first read: base only */
+  TEST_ASSERT_TRUE(tl.rate(sc::kFpsWindowNs) < 0.0f);
+  TEST_ASSERT_EQ_INT(0, tl.push(1, frames, t)); /* same read twice */
+  for (int i = 0; i < 300; ++i) {
+    t += kTick;
+    frames += 2000;
+    TEST_ASSERT_EQ_INT(1, tl.push(1, frames, t));
+  }
+  TEST_ASSERT_EQ_INT(60, as_int(tl.rate(sc::kFpsWindowNs)));
+  TEST_ASSERT_EQ_INT(60, as_int(tl.rate(sc::kStatsWindowNs)));
+  TEST_ASSERT_EQ_INT(17, as_int(tl.max_frame_ms(sc::kMaxWindowNs)));
+  TEST_ASSERT_EQ_INT(60, as_int(tl.low_fps(sc::kStatsWindowNs)));
+  TEST_ASSERT_EQ_INT(17, as_int(tl.at(tl.size() - 1).frame_ms));
+
+  /* A new epoch (game restarted) re-bases instead of differencing. */
+  TEST_ASSERT_EQ_INT(0, tl.push(2, 10, t + kTick));
+  /* So does a count that went backwards. */
+  TEST_ASSERT_EQ_INT(0, tl.push(2, 5, t + 2 * kTick));
+  tl.reset();
+  TEST_ASSERT_EQ_INT(0, tl.size());
+  return 0;
+}
+
+int test_timeline_stall(void) {
+  sc::FrameTimeline tl;
+  uint64_t t = 5000000000ull, frames = 0;
+  tl.push(1, frames, t);
+  for (int i = 0; i < 60; ++i) {
+    t += kTick;
+    frames += 2000;
+    tl.push(1, frames, t);
+  }
+  /* Three publishes with no new frame: a 100 ms freeze in progress. */
+  for (int i = 0; i < 3; ++i) {
+    t += kTick;
+    TEST_ASSERT_EQ_INT(1, tl.push(1, frames, t));
+  }
+  TEST_ASSERT_EQ_INT(100, as_int(tl.max_frame_ms(sc::kMaxWindowNs)));
+  /* FPS over 0.5 s drops: 24 frames in 15 spans, 48 fps. */
+  TEST_ASSERT_TRUE(tl.rate(sc::kFpsWindowNs) < 55.0f);
+
+  /* The freeze ends: the first frame carries it, the second is normal. */
+  t += kTick;
+  frames += 2000;
+  TEST_ASSERT_EQ_INT(2, tl.push(1, frames, t));
+  const sc::FrameTimeline::Span &spike = tl.at(tl.size() - 2);
+  const sc::FrameTimeline::Span &after = tl.at(tl.size() - 1);
+  TEST_ASSERT_EQ_INT(117, as_int(spike.frame_ms)); /* 100 + 16.7 */
+  TEST_ASSERT_EQ_INT(1, as_int(spike.frames));
+  TEST_ASSERT_EQ_INT(17, as_int(after.frame_ms));
+  TEST_ASSERT_EQ_INT(117, as_int(tl.max_frame_ms(sc::kMaxWindowNs)));
+  /* Time is conserved: the window still sums to real elapsed time. */
+  TEST_ASSERT_EQ_INT(as_int(static_cast<float>(after.end_ns - spike.end_ns)),
+                     as_int(static_cast<float>(after.dur_ns)));
+  return 0;
+}
+
+int test_timeline_low(void) {
+  /* 10 s at 60 fps with one 117 ms hitch: under 1% of frames, LOW stays at
+   * the steady rate. */
+  sc::FrameTimeline tl;
+  uint64_t t = 5000000000ull, frames = 0;
+  tl.push(1, frames, t);
+  auto steady = [&](int n) {
+    for (int i = 0; i < n; ++i) {
+      t += kTick;
+      frames += 2000;
+      tl.push(1, frames, t);
+    }
+  };
+  auto hitch = [&]() {
+    for (int i = 0; i < 3; ++i) {
+      t += kTick;
+      tl.push(1, frames, t);
+    }
+  };
+  steady(150);
+  hitch();
+  steady(150);
+  TEST_ASSERT_EQ_INT(60, as_int(tl.low_fps(sc::kStatsWindowNs)));
+  /* A hitch every second: 10 slow frames of ~600 is over 1%, so LOW drops
+   * to the hitch rate (1000 / 116.7 ≈ 8.6). */
+  for (int i = 0; i < 10; ++i) {
+    hitch();
+    steady(27);
+  }
+  TEST_ASSERT_EQ_INT(9, as_int(tl.low_fps(sc::kStatsWindowNs)));
+  TEST_ASSERT_TRUE(tl.rate(sc::kStatsWindowNs) < 60.0f);
   return 0;
 }
 
@@ -703,30 +701,29 @@ int test_fps_stats(void) {
 
 extern "C" int test_overlay_scene_suite(void) {
   int failures = 0;
-  failures += onion_test_run("overlay_scene.empty", test_empty_when_nothing_enabled);
+  failures += onion_test_run("overlay_scene.empty", test_empty_without_screen);
   failures += onion_test_run("overlay_scene.placement", test_corner_placement_and_margin);
   failures += onion_test_run("overlay_scene.opacity", test_opacity);
   failures += onion_test_run("overlay_scene.panel_values", test_panel_values);
+  failures += onion_test_run("overlay_scene.low_label", test_low_label);
   failures += onion_test_run("overlay_scene.brand", test_brand_header);
   failures += onion_test_run("overlay_scene.no_game", test_no_game);
-  failures += onion_test_run("overlay_scene.non_finite", test_non_finite_and_missing);
-  failures += onion_test_run("overlay_scene.bars", test_bars);
-  failures += onion_test_run("overlay_scene.temp_colors", test_temperature_colors);
+  failures += onion_test_run("overlay_scene.non_finite", test_non_finite);
   failures += onion_test_run("overlay_scene.fps_colors", test_fps_state_colors);
-  failures += onion_test_run("overlay_scene.order", test_order_and_dividers);
-  failures += onion_test_run("overlay_scene.per_core_full", test_per_core_and_full);
-  failures += onion_test_run("overlay_scene.frame_graph", test_frame_time_graph);
-  failures += onion_test_run("overlay_scene.stutter", test_stutter_columns);
-  failures += onion_test_run("overlay_scene.compact", test_compact_line);
-  failures += onion_test_run("overlay_scene.compact_stable", test_compact_slots_are_stable);
+  failures += onion_test_run("overlay_scene.fps_chart", test_fps_chart);
+  failures += onion_test_run("overlay_scene.frame_chart", test_frame_time_chart);
+  failures += onion_test_run("overlay_scene.compact", test_compact_strip);
   failures += onion_test_run("overlay_scene.minimal", test_minimal_pill);
   failures += onion_test_run("overlay_scene.fps_pill", test_companion_fps_pill);
+  failures += onion_test_run("overlay_scene.full_is_panel", test_full_matches_panel);
   failures += onion_test_run("overlay_scene.target", test_target_inference);
   failures += onion_test_run("overlay_scene.format", test_formatting);
   failures += onion_test_run("overlay_scene.budget", test_widget_budget);
   failures += onion_test_run("overlay_scene.large_font", test_large_font_scales);
   failures += onion_test_run("overlay_scene.frame_window", test_frame_count_window);
   failures += onion_test_run("overlay_scene.ring", test_ring);
-  failures += onion_test_run("overlay_scene.fps_stats", test_fps_stats);
+  failures += onion_test_run("overlay_scene.timeline_steady", test_timeline_steady);
+  failures += onion_test_run("overlay_scene.timeline_stall", test_timeline_stall);
+  failures += onion_test_run("overlay_scene.timeline_low", test_timeline_low);
   return failures;
 }
