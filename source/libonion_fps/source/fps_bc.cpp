@@ -259,61 +259,73 @@ BcHookStatus BcGnmHook::install(pid_t pid) {
     return BcHookStatus::ReadFailed;
   }
 
-  /* Carve the trampoline and its counter out of the eboot section tails. */
-  ProcessMemoryAllocator text_alloc = im.hijacker->getTextAllocator();
-  ProcessMemoryAllocator data_alloc = im.hijacker->getDataAllocator();
-
-  uint64_t tramp_code = text_alloc.allocate(kTrampBytes);
-  uint64_t counter_va = data_alloc.allocate(kCounterBytes);
-
-  if (!va_mapped(pid, tramp_code) || !va_mapped(pid, counter_va)) {
-    /* The eboot tail is not mapped; fall back to the GnmDriver sections. */
-    LOG_INFO("fps-bc: eboot alloc tail unmapped; using GnmDriver sections");
-    const SharedLibSection *ts = im.gnm ? im.gnm->getTextSection() : nullptr;
-    const SharedLibSection *ds = im.gnm ? im.gnm->getDataSection() : nullptr;
-    if (!ts || !ds) {
-      LOG_WARN("fps-bc: GnmDriver sections unavailable");
-      reset();
-      return BcHookStatus::AllocFailed;
-    }
-    text_alloc = ProcessMemoryAllocator(ts);
-    data_alloc = ProcessMemoryAllocator(ds);
-    tramp_code = text_alloc.allocate(kTrampBytes);
-    counter_va = data_alloc.allocate(kCounterBytes);
-    if (!va_mapped(pid, tramp_code) || !va_mapped(pid, counter_va)) {
-      LOG_WARN("fps-bc: GnmDriver alloc tail also unmapped");
-      reset();
-      return BcHookStatus::AllocFailed;
-    }
-  }
-
-  /* trampoline = inc qword [counter] | relocated prologue | jmp back.
+  /* Carve the trampoline and its counter out of a section tail: the eboot
+   * first, then GnmDriver. A placement fails when its tail is unmapped, the
+   * counter is beyond disp32 reach, or the relocated prologue cannot reach
+   * what it addresses from there; the other placement may still work.
+   *
+   * trampoline = inc qword [counter] | relocated prologue | jmp back.
    * The inc goes first: flags are dead at function entry, and a relocated
    * prologue may branch away before reaching anything placed after it. */
   uint8_t block[kTrampBytes] {};
-  block[0] = 0xFF;
-  block[1] = 0x05;
-  const int64_t disp64 = static_cast<int64_t>(counter_va) -
-                         static_cast<int64_t>(tramp_code + kIncBytes);
-  if (disp64 < INT32_MIN || disp64 > INT32_MAX) {
-    LOG_WARN("fps-bc: counter out of disp32 range (tramp=0x%llx "
-             "counter=0x%llx)",
-             static_cast<unsigned long long>(tramp_code),
-             static_cast<unsigned long long>(counter_va));
-    reset();
-    return BcHookStatus::AllocFailed;
-  }
-  const int32_t disp = static_cast<int32_t>(disp64);
-  std::memcpy(block + 2, &disp, sizeof(disp));
-
+  uint64_t tramp_code = 0, counter_va = 0;
   onion_x64_relocate_result relocation {};
-  if (!onion_x64_relocate(code, fn, block + kIncBytes, tramp_code + kIncBytes,
-                          kHookMin, kRelocCapacity, &relocation)) {
-    LOG_WARN("fps-bc: prologue relocation failed @0x%llx+%zu: %s",
-             static_cast<unsigned long long>(fn), relocation.error_offset,
-             onion_x64_relocate_error_string(relocation.error));
+  BcHookStatus failure = BcHookStatus::AllocFailed;
+  bool placed = false;
+  for (int attempt = 0; attempt < 2 && !placed; ++attempt) {
+    ProcessMemoryAllocator text_alloc(nullptr), data_alloc(nullptr);
+    if (attempt == 0) {
+      text_alloc = im.hijacker->getTextAllocator();
+      data_alloc = im.hijacker->getDataAllocator();
+    } else {
+      LOG_INFO("fps-bc: eboot tail unusable; using GnmDriver sections");
+      const SharedLibSection *ts = im.gnm ? im.gnm->getTextSection() : nullptr;
+      const SharedLibSection *ds = im.gnm ? im.gnm->getDataSection() : nullptr;
+      if (!ts || !ds) {
+        LOG_WARN("fps-bc: GnmDriver sections unavailable");
+        break;
+      }
+      text_alloc = ProcessMemoryAllocator(ts);
+      data_alloc = ProcessMemoryAllocator(ds);
+    }
+    tramp_code = text_alloc.allocate(kTrampBytes);
+    counter_va = data_alloc.allocate(kCounterBytes);
+    if (!va_mapped(pid, tramp_code) || !va_mapped(pid, counter_va)) {
+      LOG_WARN("fps-bc: alloc tail unmapped (tramp=0x%llx counter=0x%llx)",
+               static_cast<unsigned long long>(tramp_code),
+               static_cast<unsigned long long>(counter_va));
+      failure = BcHookStatus::AllocFailed;
+      continue;
+    }
+    const int64_t disp64 = static_cast<int64_t>(counter_va) -
+                           static_cast<int64_t>(tramp_code + kIncBytes);
+    if (disp64 < INT32_MIN || disp64 > INT32_MAX) {
+      LOG_WARN("fps-bc: counter out of disp32 range (tramp=0x%llx "
+               "counter=0x%llx)",
+               static_cast<unsigned long long>(tramp_code),
+               static_cast<unsigned long long>(counter_va));
+      failure = BcHookStatus::AllocFailed;
+      continue;
+    }
+    std::memset(block, 0, sizeof(block));
+    block[0] = 0xFF;
+    block[1] = 0x05;
+    const int32_t disp = static_cast<int32_t>(disp64);
+    std::memcpy(block + 2, &disp, sizeof(disp));
+    if (!onion_x64_relocate(code, fn, block + kIncBytes, tramp_code + kIncBytes,
+                            kHookMin, kRelocCapacity, &relocation)) {
+      LOG_WARN("fps-bc: prologue relocation failed @0x%llx+%zu from 0x%llx: %s",
+               static_cast<unsigned long long>(fn), relocation.error_offset,
+               static_cast<unsigned long long>(tramp_code),
+               onion_x64_relocate_error_string(relocation.error));
+      failure = BcHookStatus::DisasmFailed;
+      continue;
+    }
+    placed = true;
+  }
+  if (!placed) {
     reset();
-    return BcHookStatus::DisasmFailed;
+    return failure;
   }
   const uint32_t hook_len = static_cast<uint32_t>(relocation.source_size);
   const size_t block_bytes = kIncBytes + relocation.trampoline_size;
