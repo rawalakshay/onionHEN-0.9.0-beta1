@@ -25,6 +25,10 @@ void onion_cheat_secure_zero(void *ptr, size_t len);
 int onion_cheat_parse_shnext_buffer(const char *data, size_t size,
                                     onion_cheat_file_t *out);
 
+/** Parse the length-prefixed ShnExt ProcessName from decrypted plaintext (the
+ *  length field is attacker-controlled). Caller frees. Exposed for tests. */
+char *onion_cheat_shnext_process_name(const uint8_t *plain, size_t plain_len);
+
 #ifdef __cplusplus
 }
 #endif

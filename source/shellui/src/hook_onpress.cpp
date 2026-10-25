@@ -124,6 +124,8 @@ int OnPress_Hook(MonoObject *Instance, MonoObject *element, MonoObject *e) {
         onion::shellui::dynamic_ui::DispatchResult::NotOwned) {
       return 0;
     }
+    /* NotOwned covers Menu nodes: they render as stock <link> elements that
+     * only the stock handler navigates. */
     return call_original(Instance, element, e);
   }
 

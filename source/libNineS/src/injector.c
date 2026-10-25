@@ -122,7 +122,13 @@ int inject_elf(struct proc* proc, void* elf)
     }
     else
     {
-        LOG_ERROR("[-] inject: authid backup failed (continuing)");
+        /* read_self_authid fails only when the authid reads back as 0, i.e.
+         * kernel RW is broken, so the elevate + ptrace attach below would fail
+         * anyway. Abort now rather than elevate with no way to restore and leak
+         * PTRACE_AUTHID on this process for life. */
+        LOG_ERROR("[-] inject: authid backup failed; aborting inject");
+        status = false;
+        goto exit;
     }
     set_ucred_to_ptrace();
 

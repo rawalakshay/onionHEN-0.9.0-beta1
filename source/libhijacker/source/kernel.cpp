@@ -23,6 +23,9 @@ String getKernelString(uintptr_t addr) {
 }
 
 UniquePtr<KProc> getProc(int pid) {
+	if (offsets::allproc() == (size_t)-1) {
+		return nullptr;
+	}
 	for (auto p : getAllProcs()) {
 		if (pid == p->pid()) {
 			return p.release();

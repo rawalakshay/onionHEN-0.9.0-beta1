@@ -12,6 +12,7 @@ add_library(${PROJECT_NAME} STATIC
   source/fps_publish.cpp
   source/fps_bc.cpp
   ${PROJECT_ROOT}/libonion_detour/source/hde64.cpp
+  ${PROJECT_ROOT}/libonion_detour/source/x64_relocator.cpp
 )
 set_target_properties(${PROJECT_NAME} PROPERTIES OUTPUT_NAME "${PROJECT_NAME}")
 

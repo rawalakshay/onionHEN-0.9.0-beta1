@@ -537,13 +537,10 @@ void *plugin_progress_worker(void *raw) {
     return nullptr;
   }
 
-  {
-    auto it = std::ranges::find(g_ui.external_plugins, plugin_id,
-                                &PluginInventoryItem::plugin_id);
-    if (it != g_ui.external_plugins.end()) {
-      it->running = is_start;
-    }
-  }
+  /* Do not touch g_ui.external_plugins from this worker thread: it is the UI
+   * thread's vector and is reassigned whenever a page refreshes, so a write
+   * here races that reassign (use-after-free). Both pages re-query ListPlugins
+   * when rebuilt, so the running flag is already refreshed there. */
 
   if (is_start) {
     {

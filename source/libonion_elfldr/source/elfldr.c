@@ -168,6 +168,12 @@ elfldr_sanity_check(uint8_t *elf, size_t elf_size) {
 **/
 static int
 r_relative(elfldr_ctx_t *ctx, Elf64_Rela* rela) {
+  /* r_offset is from the (untrusted) ELF; keep the write inside the mirror. */
+  if(rela->r_offset > ctx->base_size ||
+     ctx->base_size - rela->r_offset < sizeof(intptr_t)) {
+    LOG_PUTS("r_relative: r_offset out of range");
+    return -1;
+  }
   intptr_t* loc = ctx->base_mirror + rela->r_offset;
   intptr_t val = ctx->base_addr + rela->r_addend;
 
@@ -192,6 +198,15 @@ data_load(elfldr_ctx_t *ctx, Elf64_Phdr *phdr) {
     return 0;
   }
 
+  /* p_vaddr/p_filesz are from the ELF; keep the copy inside the mirror. */
+  size_t end;
+  if(phdr->p_filesz > phdr->p_memsz ||
+     range_end_overflow(phdr->p_vaddr, phdr->p_filesz, &end) ||
+     end > ctx->base_size) {
+    LOG_PUTS("data_load: segment out of range");
+    return -1;
+  }
+
   memcpy(data, ctx->elf+phdr->p_offset, phdr->p_filesz);
 
   return 0;
@@ -210,7 +225,6 @@ elfldr_load(pid_t pid, uint8_t *elf) {
 
   elfldr_ctx_t ctx = {.elf = elf, .pid=pid};
 
-  size_t min_vaddr = -1;
   size_t max_vaddr = 0;
 
   int error = 0;
@@ -220,28 +234,28 @@ elfldr_load(pid_t pid, uint8_t *elf) {
     if(phdr[i].p_type != PT_LOAD) {
       continue;
     }
-    if(phdr[i].p_vaddr < min_vaddr) {
-      min_vaddr = phdr[i].p_vaddr;
+    size_t seg_end;
+    if(range_end_overflow(phdr[i].p_vaddr, phdr[i].p_memsz, &seg_end)) {
+      LOG_PUTS("elfldr_load: segment vaddr+memsz overflow");
+      return 0;
     }
-
-    if(max_vaddr < phdr[i].p_vaddr + phdr[i].p_memsz) {
-      max_vaddr = phdr[i].p_vaddr + phdr[i].p_memsz;
+    if(max_vaddr < seg_end) {
+      max_vaddr = seg_end;
     }
   }
 
-  min_vaddr = TRUNC_PG(min_vaddr);
-  max_vaddr = ROUND_PG(max_vaddr);
-  ctx.base_size = max_vaddr - min_vaddr;
+  /* Segments land at base + p_vaddr, so the mapping must span [0, max). */
+  ctx.base_size = ROUND_PG(max_vaddr);
 
   int flags = MAP_PRIVATE | MAP_ANONYMOUS;
   int prot = PROT_READ | PROT_WRITE;
   if(ehdr->e_type == ET_DYN) {
     ctx.base_addr = 0;
-  } else if(ehdr->e_type == ET_EXEC) {
-    ctx.base_addr = min_vaddr;
-    flags |= MAP_FIXED;
   } else {
-    LOG_PUTS("elfldr_load: ELF type not supported");
+    /* ET_EXEC wrote at base_mirror+p_vaddr (absolute) into a (max-min)-sized
+     * mirror, overflowing the loader heap; only ET_DYN payloads are produced,
+     * so refuse every other type instead of corrupting the loader. */
+    LOG_PUTS("elfldr_load: ELF type not supported (ET_DYN only)");
     return 0;
   }
 

@@ -8,7 +8,7 @@
  */
 #include <onion/fps_bc.hpp>
 
-#include <onion/hde64.h>
+#include <onion/x64_relocator.h>
 #include <onion/log.h>
 #include <onion/proc_dmap.h>
 
@@ -26,13 +26,18 @@ namespace fps {
 
 namespace {
 
-/* Smallest prologue etaHEN-style detours accept. */
-constexpr uint32_t kHookMin = 14;
-/* Bytes of the entry point we read to locate an instruction boundary. */
+/* Bytes stolen from the entry: one absolute jmp. */
+constexpr size_t kHookMin = 14;
+/* Entry bytes read for relocation. No stolen instruction starts past byte
+ * kHookMin-1 and x86 instructions are at most 15 bytes, so 32 is never
+ * over-read. */
 constexpr size_t kPrologueRead = 32;
 constexpr size_t kCounterBytes = 8;
 constexpr size_t kIncBytes = 6;  /* ff 05 disp32 */
 constexpr size_t kJmpBytes = 14; /* ff 25 00000000 + qword target */
+/* Worst case for kHookMin stolen bytes: 7 two-byte jcc -> 7*16, plus jmp back. */
+constexpr size_t kRelocCapacity = 128;
+constexpr size_t kTrampBytes = kIncBytes + kRelocCapacity;
 
 /* PS4 GNM submission entry points, in order of preference. */
 constexpr const char *kNidNames[] = {
@@ -246,7 +251,6 @@ BcHookStatus BcGnmHook::install(pid_t pid) {
   LOG_INFO("fps-bc: resolved %s -> 0x%llx", found_name,
            static_cast<unsigned long long>(fn));
 
-  /* Disassemble the entry prologue to a clean instruction boundary. */
   uint8_t code[kPrologueRead] {};
   if (!im.hijacker->read(fn, code, sizeof(code))) {
     LOG_WARN("fps-bc: prologue read failed @0x%llx",
@@ -255,32 +259,11 @@ BcHookStatus BcGnmHook::install(pid_t pid) {
     return BcHookStatus::ReadFailed;
   }
 
-  uint32_t hook_len = 0;
-  while (hook_len < kHookMin) {
-    hde64s hs {};
-    const uint32_t n = hde64_disasm(code + hook_len, &hs);
-    if (n == 0 || (hs.flags & F_ERROR)) {
-      LOG_WARN("fps-bc: disasm failed @0x%llx+%u",
-               static_cast<unsigned long long>(fn),
-               static_cast<unsigned>(hook_len));
-      reset();
-      return BcHookStatus::DisasmFailed;
-    }
-    hook_len += n;
-    if (hook_len > kPrologueRead) {
-      LOG_WARN("fps-bc: prologue exceeds read window @0x%llx",
-               static_cast<unsigned long long>(fn));
-      reset();
-      return BcHookStatus::DisasmFailed;
-    }
-  }
-
   /* Carve the trampoline and its counter out of the eboot section tails. */
   ProcessMemoryAllocator text_alloc = im.hijacker->getTextAllocator();
   ProcessMemoryAllocator data_alloc = im.hijacker->getDataAllocator();
 
-  uint64_t tramp_code = text_alloc.allocate(
-      static_cast<size_t>(hook_len) + kIncBytes + kJmpBytes);
+  uint64_t tramp_code = text_alloc.allocate(kTrampBytes);
   uint64_t counter_va = data_alloc.allocate(kCounterBytes);
 
   if (!va_mapped(pid, tramp_code) || !va_mapped(pid, counter_va)) {
@@ -295,8 +278,7 @@ BcHookStatus BcGnmHook::install(pid_t pid) {
     }
     text_alloc = ProcessMemoryAllocator(ts);
     data_alloc = ProcessMemoryAllocator(ds);
-    tramp_code = text_alloc.allocate(
-        static_cast<size_t>(hook_len) + kIncBytes + kJmpBytes);
+    tramp_code = text_alloc.allocate(kTrampBytes);
     counter_va = data_alloc.allocate(kCounterBytes);
     if (!va_mapped(pid, tramp_code) || !va_mapped(pid, counter_va)) {
       LOG_WARN("fps-bc: GnmDriver alloc tail also unmapped");
@@ -305,15 +287,14 @@ BcHookStatus BcGnmHook::install(pid_t pid) {
     }
   }
 
-  /* trampoline = prologue | inc qword [counter] | jmp back */
-  uint8_t block[64] {};
-  uint8_t *p = block;
-  std::memcpy(p, code, hook_len);
-  p += hook_len;
-  *p++ = 0xFF;
-  *p++ = 0x05;
+  /* trampoline = inc qword [counter] | relocated prologue | jmp back.
+   * The inc goes first: flags are dead at function entry, and a relocated
+   * prologue may branch away before reaching anything placed after it. */
+  uint8_t block[kTrampBytes] {};
+  block[0] = 0xFF;
+  block[1] = 0x05;
   const int64_t disp64 = static_cast<int64_t>(counter_va) -
-                         static_cast<int64_t>(tramp_code + hook_len + kIncBytes);
+                         static_cast<int64_t>(tramp_code + kIncBytes);
   if (disp64 < INT32_MIN || disp64 > INT32_MAX) {
     LOG_WARN("fps-bc: counter out of disp32 range (tramp=0x%llx "
              "counter=0x%llx)",
@@ -323,17 +304,19 @@ BcHookStatus BcGnmHook::install(pid_t pid) {
     return BcHookStatus::AllocFailed;
   }
   const int32_t disp = static_cast<int32_t>(disp64);
-  std::memcpy(p, &disp, sizeof(disp));
-  p += sizeof(disp);
-  *p++ = 0xFF;
-  *p++ = 0x25;
-  const uint32_t zero = 0;
-  std::memcpy(p, &zero, sizeof(zero));
-  p += sizeof(zero);
-  const uint64_t back = fn + hook_len;
-  std::memcpy(p, &back, sizeof(back));
-  p += sizeof(back);
-  const size_t block_bytes = static_cast<size_t>(p - block);
+  std::memcpy(block + 2, &disp, sizeof(disp));
+
+  onion_x64_relocate_result relocation {};
+  if (!onion_x64_relocate(code, fn, block + kIncBytes, tramp_code + kIncBytes,
+                          kHookMin, kRelocCapacity, &relocation)) {
+    LOG_WARN("fps-bc: prologue relocation failed @0x%llx+%zu: %s",
+             static_cast<unsigned long long>(fn), relocation.error_offset,
+             onion_x64_relocate_error_string(relocation.error));
+    reset();
+    return BcHookStatus::DisasmFailed;
+  }
+  const uint32_t hook_len = static_cast<uint32_t>(relocation.source_size);
+  const size_t block_bytes = kIncBytes + relocation.trampoline_size;
 
   constexpr int kRwx = PROT_READ | PROT_WRITE | PROT_EXEC;
   constexpr int kRx = PROT_READ | PROT_EXEC;

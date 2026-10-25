@@ -140,6 +140,36 @@ static int shnext_aes256_cbc_decrypt(const uint8_t *ciphertext, size_t ct_len,
   return 0;
 }
 
+/* Extract the length-prefixed process name from decrypted ProcessName
+ * plaintext, else copy the whole plaintext. The 32-bit length at plain[19..22]
+ * is attacker-controlled, so the bound must not wrap. Exposed for tests. */
+char *onion_cheat_shnext_process_name(const uint8_t *plain, size_t plain_len) {
+  char *result = NULL;
+
+  if (plain_len >= 23 && plain[17] == 0x06) {
+    uint32_t str_len = ((uint32_t)plain[19] << 24) |
+                       ((uint32_t)plain[20] << 16) |
+                       ((uint32_t)plain[21] << 8) | ((uint32_t)plain[22]);
+    if (str_len <= plain_len - 23) { /* plain_len >= 23 held above; no 32-bit wrap */
+      result = (char *)malloc((size_t)str_len + 1);
+      if (result != NULL) {
+        memcpy(result, plain + 23, str_len);
+        result[str_len] = '\0';
+      }
+    }
+  }
+
+  if (result == NULL) {
+    result = (char *)malloc(plain_len + 1);
+    if (result != NULL) {
+      memcpy(result, plain, plain_len);
+      result[plain_len] = '\0';
+    }
+  }
+
+  return result;
+}
+
 static char *shnext_decrypt_process_name(const char *b64_blob) {
   unsigned char *raw = NULL;
   size_t raw_len = 0;
@@ -168,26 +198,7 @@ static char *shnext_decrypt_process_name(const char *b64_blob) {
   onion_cheat_secure_zero(raw, raw_len);
   free(raw);
 
-  if (plain_len >= 23 && plain[17] == 0x06) {
-    uint32_t str_len = ((uint32_t)plain[19] << 24) |
-                       ((uint32_t)plain[20] << 16) |
-                       ((uint32_t)plain[21] << 8) | ((uint32_t)plain[22]);
-    if (23 + str_len <= plain_len) {
-      result = (char *)malloc(str_len + 1);
-      if (result != NULL) {
-        memcpy(result, plain + 23, str_len);
-        result[str_len] = '\0';
-      }
-    }
-  }
-
-  if (result == NULL) {
-    result = (char *)malloc(plain_len + 1);
-    if (result != NULL) {
-      memcpy(result, plain, plain_len);
-      result[plain_len] = '\0';
-    }
-  }
+  result = onion_cheat_shnext_process_name(plain, plain_len);
 
   onion_cheat_secure_zero(plain, plain_len);
   onion_cheat_secure_zero(proc_key, sizeof(proc_key));

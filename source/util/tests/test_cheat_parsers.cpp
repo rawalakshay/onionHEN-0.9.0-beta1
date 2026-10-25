@@ -2,8 +2,11 @@
 #include <cstring>
 #include <string>
 
+#include <cstdlib>
+
 #include "cheats/i_cheat_parser.hpp"
 #include "cheats/cheat_engine.h"
+#include "cheats/cheat_engine_internal.h"
 #include "test_harness.h"
 #include "test_support.h"
 
@@ -373,6 +376,38 @@ int test_fixture_shnext_file_loads() {
   return 0;
 }
 
+int test_shnext_process_name_rejects_wrapped_length() {
+  /* plain[17]==0x06 selects the length-prefixed name; a 0xFFFFFFFF length used
+   * to wrap "23 + str_len <= plain_len" and memcpy 4 GB past a 0-byte malloc. */
+  uint8_t plain[32];
+  std::memset(plain, 0, sizeof(plain));
+  std::memcpy(plain, "FALLBACK", 8);
+  plain[17] = 0x06;
+  plain[19] = 0xFF;
+  plain[20] = 0xFF;
+  plain[21] = 0xFF;
+  plain[22] = 0xFF;
+  char *name = onion_cheat_shnext_process_name(plain, sizeof(plain));
+  TEST_ASSERT_TRUE(name != nullptr);
+  /* Length rejected, fell back to the whole plaintext: no 4 GB copy. */
+  TEST_ASSERT_STREQ("FALLBACK", name);
+  std::free(name);
+  return 0;
+}
+
+int test_shnext_process_name_reads_valid_length() {
+  uint8_t plain[32];
+  std::memset(plain, 0, sizeof(plain));
+  plain[17] = 0x06;
+  plain[22] = 0x04; /* str_len = 4 */
+  std::memcpy(plain + 23, "ABCD", 4);
+  char *name = onion_cheat_shnext_process_name(plain, sizeof(plain));
+  TEST_ASSERT_TRUE(name != nullptr);
+  TEST_ASSERT_STREQ("ABCD", name);
+  std::free(name);
+  return 0;
+}
+
 int test_factory_extension_routing() {
   auto json = CheatParserFactory::createByFormat("json");
   auto shn = CheatParserFactory::createByFormat(".shn");
@@ -423,6 +458,10 @@ extern "C" int test_cheat_parsers_suite(void) {
       onion_test_run("fixture mc4 file loads", test_fixture_mc4_file_loads);
   failures += onion_test_run("fixture shnext file loads",
                              test_fixture_shnext_file_loads);
+  failures += onion_test_run("shnext process name rejects wrapped length",
+                             test_shnext_process_name_rejects_wrapped_length);
+  failures += onion_test_run("shnext process name reads valid length",
+                             test_shnext_process_name_reads_valid_length);
   failures += onion_test_run("parser factory extension routing",
                              test_factory_extension_routing);
   return failures;
