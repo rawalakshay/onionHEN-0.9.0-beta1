@@ -145,6 +145,8 @@
     "overlay.fps_pill.desc": "Zobrazit také malé počítadlo FPS v protějším rohu",
     "overlay.system": "Systémový řádek (CPU, GPU, paměť)",
     "overlay.system.desc": "Pod grafy zobrazit vytížení a teplotu CPU, teplotu SoC a příkon GPU a využití paměti",
+    "overlay.frame_graph": "Graf doby snímku",
+    "overlay.frame_graph.desc": "Zobrazit graf doby snímku za 7,5 s podél dolního okraje",
     "overlay.gpu": "GPU",
     "overlay.gpu.desc": "Zobrazit teplotu GPU a využití VRAM",
     "overlay.fps": "FPS",

@@ -145,6 +145,8 @@
     "overlay.fps_pill.desc": "Toon ook de kleine FPS-teller in de tegenoverliggende hoek",
     "overlay.system": "Systeemregel (CPU, GPU, geheugen)",
     "overlay.system.desc": "CPU-belasting en -temperatuur, SoC-temperatuur en GPU-vermogen en geheugengebruik onder de grafieken tonen",
+    "overlay.frame_graph": "Frametijdgrafiek",
+    "overlay.frame_graph.desc": "Toon een frametijdgrafiek van 7,5 s langs de onderrand",
     "overlay.gpu": "GPU",
     "overlay.gpu.desc": "GPU-temperatuur en VRAM-gebruik tonen",
     "overlay.fps": "FPS",

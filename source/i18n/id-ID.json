@@ -145,6 +145,8 @@
     "overlay.fps_pill.desc": "Tampilkan juga penghitung FPS kecil di sudut seberang",
     "overlay.system": "Baris sistem (CPU, GPU, memori)",
     "overlay.system.desc": "Tampilkan beban dan suhu CPU, suhu SoC dan daya GPU, serta penggunaan memori di bawah grafik",
+    "overlay.frame_graph": "Grafik waktu frame",
+    "overlay.frame_graph.desc": "Tampilkan grafik waktu frame 7,5 detik di sepanjang tepi bawah",
     "overlay.gpu": "GPU",
     "overlay.gpu.desc": "Tampilkan suhu GPU dan pemakaian VRAM",
     "overlay.fps": "FPS",

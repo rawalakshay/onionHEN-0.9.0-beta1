@@ -145,6 +145,8 @@
     "overlay.fps_pill.desc": "Küçük FPS sayacını karşı köşede de göster",
     "overlay.system": "Sistem satırı (CPU, GPU, bellek)",
     "overlay.system.desc": "Grafiklerin altında CPU yükü ve sıcaklığı, SoC sıcaklığı ve GPU gücü ile bellek kullanımını göster",
+    "overlay.frame_graph": "Kare süresi grafiği",
+    "overlay.frame_graph.desc": "Alt kenar boyunca 7,5 saniyelik kare süresi grafiğini göster",
     "overlay.gpu": "GPU",
     "overlay.gpu.desc": "GPU sıcaklığını ve VRAM kullanımını göster",
     "overlay.fps": "FPS",

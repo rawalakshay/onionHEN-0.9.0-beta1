@@ -145,6 +145,8 @@
     "overlay.fps_pill.desc": "Mostra anche il piccolo contatore FPS nell'angolo opposto",
     "overlay.system": "Riga di sistema (CPU, GPU, memoria)",
     "overlay.system.desc": "Mostra carico e temperatura della CPU, temperatura del SoC e potenza della GPU, e uso della memoria sotto i grafici",
+    "overlay.frame_graph": "Grafico del frame time",
+    "overlay.frame_graph.desc": "Mostra un grafico del frame time di 7,5 s lungo il bordo inferiore",
     "overlay.gpu": "GPU",
     "overlay.gpu.desc": "Mostrare temperatura GPU e uso della VRAM",
     "overlay.fps": "FPS",

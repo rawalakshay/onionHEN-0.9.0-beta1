@@ -145,6 +145,8 @@
     "overlay.fps_pill.desc": "Pokaż też mały licznik FPS w przeciwległym rogu",
     "overlay.system": "Wiersz systemowy (CPU, GPU, pamięć)",
     "overlay.system.desc": "Pokaż obciążenie i temperaturę CPU, temperaturę SoC i pobór mocy GPU oraz użycie pamięci pod wykresami",
+    "overlay.frame_graph": "Wykres czasu klatki",
+    "overlay.frame_graph.desc": "Pokaż wykres czasu klatki z 7,5 s wzdłuż dolnej krawędzi",
     "overlay.gpu": "GPU",
     "overlay.gpu.desc": "Temperatura GPU i użycie VRAM",
     "overlay.fps": "FPS",

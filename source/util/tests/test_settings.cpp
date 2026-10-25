@@ -165,6 +165,7 @@ static int test_full_schema_roundtrip(void) {
   in.overlay_brand = true;
   in.overlay_fps_pill = true;
   in.overlay_system = false;
+  in.overlay_frame_graph = true;
   in.overlay_margin = 20;
   in.overlay_font_size = onion::kOverlayFontLarge;
   in.overlay_order = {onion::kOverlayMetricFan, onion::kOverlayMetricFps,
@@ -210,6 +211,7 @@ static int test_full_schema_roundtrip(void) {
   TEST_ASSERT_TRUE(out.overlay_brand == in.overlay_brand);
   TEST_ASSERT_TRUE(out.overlay_fps_pill == in.overlay_fps_pill);
   TEST_ASSERT_TRUE(out.overlay_system == in.overlay_system);
+  TEST_ASSERT_TRUE(out.overlay_frame_graph == in.overlay_frame_graph);
   TEST_ASSERT_EQ_INT(in.overlay_margin, out.overlay_margin);
   TEST_ASSERT_EQ_INT(in.overlay_font_size, out.overlay_font_size);
   TEST_ASSERT_EQ_INT(in.overlay_order[0], out.overlay_order[0]);

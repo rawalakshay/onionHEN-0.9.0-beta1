@@ -145,6 +145,8 @@
     "overlay.fps_pill.desc": "Εμφάνιση και του μικρού μετρητή FPS στην απέναντι γωνία",
     "overlay.system": "Γραμμή συστήματος (CPU, GPU, μνήμη)",
     "overlay.system.desc": "Εμφάνιση φόρτου και θερμοκρασίας CPU, θερμοκρασίας SoC και ισχύος GPU, και χρήσης μνήμης κάτω από τα γραφήματα",
+    "overlay.frame_graph": "Γράφημα χρόνου καρέ",
+    "overlay.frame_graph.desc": "Εμφάνιση γραφήματος χρόνου καρέ 7,5 s κατά μήκος της κάτω άκρης",
     "overlay.gpu": "GPU",
     "overlay.gpu.desc": "Εμφάνιση θερμοκρασίας GPU και χρήσης VRAM",
     "overlay.fps": "FPS",

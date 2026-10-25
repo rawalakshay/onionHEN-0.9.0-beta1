@@ -227,6 +227,10 @@ inline constexpr int kFpsBars = 40;
 inline constexpr int kFrameBars = 90;
 /* Compact strip: the newest frame samples only. */
 inline constexpr int kStripBars = 50;
+/* Frame-time graph: one bar per sample, 7.5 s at a 33 ms publish.
+ * shortcut: 225 Mono widgets untested on console; halve to 112 (two samples
+ * per bar) if ShellUI stutters. */
+inline constexpr int kLongBars = 225;
 
 /** Windows the numbers are measured over. */
 inline constexpr uint64_t kFpsWindowNs = 500000000ull;    /* FPS, frame time */
@@ -492,6 +496,8 @@ struct Histories {
   Ring<kFpsBars> fps;
   /** Frame time in ms per frame sample, oldest → newest. */
   Ring<kFrameBars> frame_ms;
+  /** The same samples, kept long enough for the frame-time graph. */
+  Ring<kLongBars> long_ms;
 };
 
 enum class Detail : uint8_t { Minimal, Compact, Panel, Full };
@@ -513,6 +519,8 @@ struct Options {
   /** CPU / GPU / MEM row under the panel charts and after the compact
    *  strip (overlay.system). Minimal never shows it. */
   bool show_system = true;
+  /** Frame-time graph box along the bottom edge (overlay.frame_graph). */
+  bool frame_graph = false;
 };
 
 enum class TextAlign : uint8_t { Left, Right };
@@ -750,6 +758,7 @@ inline constexpr const char *kIdPrefix = "id_osc_";
 /* The companion FPS pill keeps its own ids so it can sit next to a level
  * that uses the plain ones. */
 inline constexpr const char *kPillIdPrefix = "id_osc_pill_";
+inline constexpr const char *kGraphIdPrefix = "id_osc_graph_";
 
 /** Background + 1 px outline; nothing at opacity 0. */
 inline void chrome(Scene &out, float w, float h, int opacity,
@@ -910,16 +919,85 @@ inline const char *low_label(const Readings &r) {
 }
 
 /** The newest `n` frame samples as bars on a 0 .. 3× target scale. */
-inline std::vector<Bar> frame_bars(const Histories &h, int target, int n) {
+template <int N>
+inline std::vector<Bar> frame_bars(const Ring<N> &ring, int target, int n) {
   const float top = 3.0f * 1000.0f / static_cast<float>(target);
-  const int count = std::min(n, h.frame_ms.size());
+  const int count = std::min(n, ring.size());
   std::vector<Bar> out;
   out.reserve(static_cast<size_t>(count));
-  for (int i = h.frame_ms.size() - count; i < h.frame_ms.size(); ++i) {
-    const float ms = h.frame_ms.at(i);
+  for (int i = ring.size() - count; i < ring.size(); ++i) {
+    const float ms = ring.at(i);
     out.push_back({ms / top, frame_ms_color(ms, target)});
   }
   return out;
+}
+
+/* ------------------------------------------------------------------ */
+/* Frame-time graph: FRAME TIME · LAST 7.5 S ......... MAX 33.4 ms     */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The reference design's box: 70 % of the screen wide, centred, 24 px off
+ * the bottom edge (the top edge when the overlay itself sits at the
+ * bottom), a header with the window's MAX, and one bar per sample on a
+ * 0 .. 3× target scale with guides at 1× and 2×. Appended to an already
+ * placed scene like the FPS pill; the box uses the overlay opacity.
+ */
+inline void add_frame_graph(Scene &main, const Options &opt, const Readings &r,
+                            const Histories &h) {
+  const Metrics m(opt.font_pt);
+  auto px = [&m](float v) { return std::round(v * m.k); };
+  const float w = std::round(0.7f * opt.screen_w);
+  const float bh = px(116.0f);
+  const float x0 = px(16.0f), iw = w - 2.0f * x0;
+  const int target = r.fps_target;
+  const float target_ms = 1000.0f / static_cast<float>(target);
+
+  float max_ms = -1.0f;
+  for (int i = 0; i < h.long_ms.size(); ++i)
+    max_ms = std::max(max_ms, h.long_ms.at(i));
+
+  Scene content{};
+  Builder b(m, content);
+  const float y = px(10.0f), ch = m.caption_h;
+  b.text("id_osc_graph_l", x0, iw * 0.5f, y, ch,
+         std::string("FRAME TIME ") + kMidDot + " LAST 7.5 S", kHeading,
+         m.label_pt, kWeightLabel, TextAlign::Left, m.ft_pt);
+  float rx = x0 + iw;
+  const float uw = std::ceil(advance("ms", m.label_pt));
+  b.text("id_osc_graph_u", rx - uw, uw + 2.0f, y, ch, "ms", kLabel, m.label_pt,
+         kWeightLabel, TextAlign::Right, m.ft_pt);
+  rx -= uw + std::round(4.0f * m.k);
+  const float vw = slot_w({"888.8"}, m.ft_pt);
+  b.text("id_osc_graph_max_v", rx - vw, vw, y, ch,
+         max_ms >= 0.0f ? fmt_ms(max_ms) : kDash,
+         max_ms >= 0.0f ? frame_ms_color(max_ms, target) : kText, m.ft_pt,
+         kWeightValue, TextAlign::Right, m.ft_pt);
+  rx -= vw + std::round(4.0f * m.k);
+  const float mw = std::ceil(advance("MAX", m.label_pt));
+  b.text("id_osc_graph_max_l", rx - mw, mw + 2.0f, y, ch, "MAX", kHeading,
+         m.label_pt, kWeightLabel, TextAlign::Right, m.ft_pt);
+
+  const float top = px(32.0f), gh = px(72.0f), bottom = top + gh;
+  if (r.fps_valid)
+    bars(b, "id_osc_graph_bar", kLongBars,
+         frame_bars(h.long_ms, target, kLongBars), x0, bottom, iw, gh,
+         m.ft_bar_gap);
+  b.rect("id_osc_graph_base", x0, bottom, iw, 1.0f, kBaseline);
+  guide(b, m, "id_osc_graph_g1", x0, iw, bottom - std::round(gh / 3.0f),
+        kTargetLine, fmt_ms(target_ms), opt.opacity);
+  guide(b, m, "id_osc_graph_g2", x0, iw, bottom - std::round(gh * 2.0f / 3.0f),
+        kGuideLine, fmt_ms(2.0f * target_ms), opt.opacity);
+
+  Options box = opt;
+  box.align = BarAlign::Center;
+  box.margin = px(24.0f);
+  box.edge = opt.edge == BarEdge::Bottom ? BarEdge::Top : BarEdge::Bottom;
+  Scene g = finish(box, std::move(content), w, bh, kGraphIdPrefix);
+  for (Rect &rc : g.rects)
+    main.rects.push_back(std::move(rc));
+  for (Text &t : g.texts)
+    main.texts.push_back(std::move(t));
 }
 
 /* ------------------------------------------------------------------ */
@@ -1073,8 +1151,9 @@ inline Scene build_compact(const Options &opt, const Readings &r,
   const float cw = m.strip_chart_w, ch = m.strip_chart_h;
   const float bottom = std::round((lh + ch) * 0.5f);
   if (r.fps_valid)
-    bars(b, "id_osc_sbar", kStripBars, frame_bars(h, r.fps_target, kStripBars),
-         x, bottom, cw, ch, m.ft_bar_gap);
+    bars(b, "id_osc_sbar", kStripBars,
+         frame_bars(h.frame_ms, r.fps_target, kStripBars), x, bottom, cw, ch,
+         m.ft_bar_gap);
   b.rect("id_osc_sbase", x, bottom, cw, 1.0f, kBaseline);
   b.rect("id_osc_starget", x, bottom - std::round(ch / 3.0f), cw, 1.0f,
          kTargetLine);
@@ -1279,8 +1358,8 @@ inline Scene build_panel(const Options &opt, const Readings &r,
     const float gh = m.chart_h;
     const float bottom = y + gh;
     const float target_ms = 1000.0f / static_cast<float>(target);
-    bars(b, "id_osc_tbar", kFrameBars, frame_bars(h, target, kFrameBars), x0,
-         bottom, iw, gh, m.ft_bar_gap);
+    bars(b, "id_osc_tbar", kFrameBars, frame_bars(h.frame_ms, target, kFrameBars),
+         x0, bottom, iw, gh, m.ft_bar_gap);
     b.rect("id_osc_tbase", x0, bottom, iw, 1.0f, kBaseline);
     /* 0 .. 3× target: the guides sit at 1/3 and 2/3 of the height. */
     guide(b, m, "id_osc_tg1", x0, iw, bottom - std::round(gh / 3.0f),
@@ -1309,7 +1388,8 @@ inline Scene build_scene(const Options &opt, const Readings &readings,
   Scene s{};
   switch (opt.detail) {
   case Detail::Minimal:
-    return detail::build_minimal(opt, r);
+    s = detail::build_minimal(opt, r);
+    break;
   case Detail::Compact:
     s = detail::build_compact(opt, r, hist);
     break;
@@ -1319,8 +1399,11 @@ inline Scene build_scene(const Options &opt, const Readings &readings,
     s = detail::build_panel(opt, r, hist);
     break;
   }
-  if (opt.fps_pill)
+  /* The minimal level already is the pill: no second copy. */
+  if (opt.fps_pill && opt.detail != Detail::Minimal)
     detail::add_fps_pill(s, opt, r);
+  if (opt.frame_graph)
+    detail::add_frame_graph(s, opt, r, hist);
   return s;
 }
 

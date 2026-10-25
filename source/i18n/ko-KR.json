@@ -145,6 +145,8 @@
     "overlay.fps_pill.desc": "작은 FPS 카운터를 반대쪽 모서리에도 표시합니다",
     "overlay.system": "시스템 행 (CPU, GPU, 메모리)",
     "overlay.system.desc": "그래프 아래에 CPU 부하와 온도, SoC 온도와 GPU 전력, 메모리 사용량 표시",
+    "overlay.frame_graph": "프레임 타임 그래프",
+    "overlay.frame_graph.desc": "화면 아래쪽 가장자리에 7.5초 프레임 타임 그래프 표시",
     "overlay.gpu": "GPU",
     "overlay.gpu.desc": "GPU 온도와 비디오 메모리 사용량을 표시합니다",
     "overlay.fps": "FPS",

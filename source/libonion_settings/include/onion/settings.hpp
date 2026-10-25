@@ -376,6 +376,8 @@ struct Settings {
   bool overlay_fps_pill = false;
   /** CPU / GPU / memory row under the charts (compact, panel and full). */
   bool overlay_system = true;
+  /** 7.5 s frame-time graph along the bottom edge (every level). */
+  bool overlay_frame_graph = false;
   /** Edge gap in pixels; one of kOverlayMarginOptions. */
   int overlay_margin = kOverlayMarginDefault;
   /** 0 small, 1 medium, 2 large. Applies to the whole monitor bar. */

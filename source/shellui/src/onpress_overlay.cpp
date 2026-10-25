@@ -55,6 +55,10 @@ static OnPressResult id_overlay_system(OnPressContext &ctx) {
   return toggle_overlay_flag(ctx, g_settings.overlay_system);
 }
 
+static OnPressResult id_overlay_frame_graph(OnPressContext &ctx) {
+  return toggle_overlay_flag(ctx, g_settings.overlay_frame_graph);
+}
+
 static OnPressResult id_overlay_opacity(OnPressContext &ctx) {
   const int pct = atoi(ctx.value.c_str());
   if (pct == g_settings.overlay_opacity || !onion::overlay_opacity_valid(pct)) {
@@ -221,6 +225,7 @@ static const OnPressExactEntry kExact[] = {
     {"id_overlay_brand", id_overlay_brand},
     {"id_overlay_fps_pill", id_overlay_fps_pill},
     {"id_overlay_system", id_overlay_system},
+    {"id_overlay_frame_graph", id_overlay_frame_graph},
     {"id_overlay_gpu", id_overlay_gpu},
     {"id_overlay_cpu", id_overlay_cpu},
     {"id_overlay_fps", id_overlay_fps},

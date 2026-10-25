@@ -80,6 +80,8 @@ sc::Histories flat_history(float fps = 60.0f) {
     h.fps.push(fps);
   for (int i = 0; i < sc::kFrameBars; ++i)
     h.frame_ms.push(1000.0f / fps);
+  for (int i = 0; i < sc::kLongBars; ++i)
+    h.long_ms.push(1000.0f / fps);
   return h;
 }
 
@@ -473,6 +475,65 @@ int test_minimal_pill(void) {
   s = sc::build_scene(o, r, flat_history());
   TEST_ASSERT_STREQ(kDash, text_of(s, "id_osc_fps_v"));
   TEST_ASSERT_TRUE(same_color(sc::kLabel, find_rect(s, "id_osc_dot")->color));
+  return 0;
+}
+
+/* The frame-time graph: a third box along the bottom edge, every level. */
+int test_frame_graph(void) {
+  sc::Scene plain = sc::build_scene(base_options(), live_readings(), flat_history());
+  TEST_ASSERT_EQ_INT(0, count_rect_prefix(plain, "id_osc_graph_"));
+
+  sc::Histories h = flat_history();
+  for (int i = 0; i < sc::kLongBars; ++i)
+    h.long_ms.push(i == 100 ? 33.4f : 16.7f);
+  sc::Options o = base_options(); /* panel, top-left */
+  o.frame_graph = true;
+  sc::Scene s = sc::build_scene(o, live_readings(), h);
+  TEST_ASSERT_TRUE(ids_unique(s));
+  TEST_ASSERT_EQ_INT(as_int(plain.w), as_int(s.w));
+  const sc::Rect *bg = find_rect(s, "id_osc_graph_bg");
+  TEST_ASSERT_TRUE(bg != nullptr);
+  const float w = std::round(0.7f * kW);
+  TEST_ASSERT_EQ_INT(as_int(w), as_int(bg->w));
+  TEST_ASSERT_EQ_INT(as_int((kW - w) * 0.5f), as_int(bg->x));
+  TEST_ASSERT_EQ_INT(116, as_int(bg->h));
+  TEST_ASSERT_EQ_INT(as_int(kH - 24.0f), as_int(bg->y + bg->h));
+  TEST_ASSERT_EQ_INT(sc::kLongBars, count_rect_prefix(s, "id_osc_graph_bar"));
+  TEST_ASSERT_TRUE(find_rect(s, "id_osc_graph_g1") != nullptr);
+  TEST_ASSERT_TRUE(find_rect(s, "id_osc_graph_g2") != nullptr);
+  TEST_ASSERT_STREQ("33.4", text_of(s, "id_osc_graph_max_v"));
+  TEST_ASSERT_STREQ("16.7", text_of(s, "id_osc_graph_g1_t"));
+  TEST_ASSERT_STREQ("33.3", text_of(s, "id_osc_graph_g2_t"));
+
+  /* contained() only knows the main box; check the graph against its own,
+   * and pin its widget count (one Panel per rect, cell + label per text). */
+  int widgets = 0;
+  for (const sc::Rect &rc : s.rects) {
+    if (rc.id.compare(0, 13, "id_osc_graph_") != 0)
+      continue;
+    ++widgets;
+    TEST_ASSERT_TRUE(rc.x >= bg->x - 0.5f && rc.x + rc.w <= bg->x + bg->w + 0.5f);
+    TEST_ASSERT_TRUE(rc.y >= bg->y - 0.5f && rc.y + rc.h <= bg->y + bg->h + 0.5f);
+  }
+  for (const sc::Text &t : s.texts)
+    if (t.id.compare(0, 13, "id_osc_graph_") == 0)
+      widgets += 2;
+  TEST_ASSERT_TRUE(widgets <= 250);
+
+  /* Every level, Minimal included. */
+  o = base_options(sc::Detail::Minimal);
+  o.frame_graph = true;
+  s = sc::build_scene(o, live_readings(), h);
+  TEST_ASSERT_TRUE(find_rect(s, "id_osc_graph_bg") != nullptr);
+
+  /* An overlay on the bottom edge sends the graph to the top. */
+  o = base_options();
+  o.frame_graph = true;
+  o.edge = BarEdge::Bottom;
+  s = sc::build_scene(o, live_readings(), h);
+  bg = find_rect(s, "id_osc_graph_bg");
+  TEST_ASSERT_TRUE(bg != nullptr);
+  TEST_ASSERT_EQ_INT(24, as_int(bg->y));
   return 0;
 }
 
@@ -936,6 +997,7 @@ extern "C" int test_overlay_scene_suite(void) {
   failures += onion_test_run("overlay_scene.system_toggle", test_system_row_no_game_and_toggle);
   failures += onion_test_run("overlay_scene.system_compact", test_system_row_compact);
   failures += onion_test_run("overlay_scene.budget", test_widget_budget);
+  failures += onion_test_run("overlay_scene.frame_graph", test_frame_graph);
   failures += onion_test_run("overlay_scene.large_font", test_large_font_scales);
   failures += onion_test_run("overlay_scene.frame_window", test_frame_count_window);
   failures += onion_test_run("overlay_scene.ring", test_ring);

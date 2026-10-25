@@ -145,6 +145,8 @@
     "overlay.fps_pill.desc": "A kis FPS-számláló megjelenítése a szemközti sarokban is",
     "overlay.system": "Rendszersor (CPU, GPU, memória)",
     "overlay.system.desc": "CPU-terhelés és -hőmérséklet, SoC-hőmérséklet és GPU-teljesítményfelvétel, valamint memóriahasználat megjelenítése a grafikonok alatt",
+    "overlay.frame_graph": "Képkockaidő-grafikon",
+    "overlay.frame_graph.desc": "7,5 s-os képkockaidő-grafikon megjelenítése az alsó szélen",
     "overlay.gpu": "GPU",
     "overlay.gpu.desc": "GPU-hőmérséklet és VRAM-használat megjelenítése",
     "overlay.fps": "FPS",

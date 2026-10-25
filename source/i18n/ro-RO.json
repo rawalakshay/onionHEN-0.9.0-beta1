@@ -145,6 +145,8 @@
     "overlay.fps_pill.desc": "Afișează și micul contor FPS în colțul opus",
     "overlay.system": "Rând sistem (CPU, GPU, memorie)",
     "overlay.system.desc": "Afișează încărcarea și temperatura CPU, temperatura SoC și puterea GPU, și utilizarea memoriei sub grafice",
+    "overlay.frame_graph": "Grafic al timpului de cadru",
+    "overlay.frame_graph.desc": "Afișează un grafic al timpului de cadru pe 7,5 s de-a lungul marginii de jos",
     "overlay.gpu": "GPU",
     "overlay.gpu.desc": "Afișați temperatura GPU și utilizarea VRAM",
     "overlay.fps": "FPS",

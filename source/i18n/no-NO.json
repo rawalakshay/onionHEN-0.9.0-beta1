@@ -145,6 +145,8 @@
     "overlay.fps_pill.desc": "Vis også den lille FPS-telleren i motsatt hjørne",
     "overlay.system": "Systemrad (CPU, GPU, minne)",
     "overlay.system.desc": "Vis CPU-belastning og -temperatur, SoC-temperatur og GPU-effekt samt minnebruk under grafene",
+    "overlay.frame_graph": "Bildetidsgraf",
+    "overlay.frame_graph.desc": "Vis en 7,5 s bildetidsgraf langs nederkanten",
     "overlay.gpu": "GPU",
     "overlay.gpu.desc": "Vis GPU-temperatur og VRAM-bruk",
     "overlay.fps": "FPS",

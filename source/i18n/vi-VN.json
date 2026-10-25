@@ -145,6 +145,8 @@
     "overlay.fps_pill.desc": "Hiển thị thêm bộ đếm FPS nhỏ ở góc đối diện",
     "overlay.system": "Hàng hệ thống (CPU, GPU, bộ nhớ)",
     "overlay.system.desc": "Hiển thị tải và nhiệt độ CPU, nhiệt độ SoC và công suất GPU, cùng mức dùng bộ nhớ bên dưới biểu đồ",
+    "overlay.frame_graph": "Biểu đồ thời gian khung hình",
+    "overlay.frame_graph.desc": "Hiển thị biểu đồ thời gian khung hình 7,5 s dọc cạnh dưới",
     "overlay.gpu": "GPU",
     "overlay.gpu.desc": "Hiện nhiệt độ GPU và mức dùng VRAM",
     "overlay.fps": "FPS",

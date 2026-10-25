@@ -775,8 +775,10 @@ void sample_fps() {
   const int added = g_timeline.push(epoch, frames_milli, mono_ns);
   for (int i = g_timeline.size() - added; i < g_timeline.size(); ++i) {
     const scene::FrameTimeline::Span &s = g_timeline.at(i);
-    if (s.frames > 0.0f)
+    if (s.frames > 0.0f) {
       g_history.frame_ms.push(s.frame_ms);
+      g_history.long_ms.push(s.frame_ms);
+    }
   }
 
   const float fps = g_timeline.rate(scene::kFpsWindowNs);
@@ -910,6 +912,7 @@ void scene_render() {
   o.brand = g_settings.overlay_brand;
   o.fps_pill = g_settings.overlay_fps_pill;
   o.show_system = g_settings.overlay_system;
+  o.frame_graph = g_settings.overlay_frame_graph;
   o.margin = static_cast<float>(g_settings.overlay_margin);
   overlay_scene_apply(scene::build_scene(o, r, g_history));
 }

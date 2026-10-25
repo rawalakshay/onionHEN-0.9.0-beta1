@@ -145,6 +145,8 @@
     "overlay.fps_pill.desc": "同時在對側角落顯示小型 FPS 計數",
     "overlay.system": "系統列（CPU、GPU、記憶體）",
     "overlay.system.desc": "在圖表下方顯示 CPU 負載與溫度、SoC 溫度與 GPU 功耗，以及記憶體使用量",
+    "overlay.frame_graph": "幀時間圖表",
+    "overlay.frame_graph.desc": "在畫面底部顯示 7.5 秒幀時間圖表",
     "overlay.gpu": "GPU",
     "overlay.gpu.desc": "顯示 GPU 溫度與顯示記憶體使用率",
     "overlay.fps": "FPS",

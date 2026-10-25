@@ -145,6 +145,8 @@
     "overlay.fps_pill.desc": "Näytä myös pieni FPS-laskuri vastakkaisessa kulmassa",
     "overlay.system": "Järjestelmärivi (CPU, GPU, muisti)",
     "overlay.system.desc": "Näytä suorittimen kuorma ja lämpötila, SoC:n lämpötila ja GPU:n teho sekä muistin käyttö kaavioiden alla",
+    "overlay.frame_graph": "Kuva-aikakaavio",
+    "overlay.frame_graph.desc": "Näytä 7,5 s kuva-aikakaavio alareunassa",
     "overlay.gpu": "GPU",
     "overlay.gpu.desc": "Näytä GPU:n lämpötila ja VRAM-käyttö",
     "overlay.fps": "FPS",

@@ -145,6 +145,8 @@
     "overlay.fps_pill.desc": "Also show the small FPS counter in the opposite corner",
     "overlay.system": "System row (CPU, GPU, memory)",
     "overlay.system.desc": "Show CPU load and temperature, SoC temperature and GPU power, and memory use under the charts",
+    "overlay.frame_graph": "Frame-time graph",
+    "overlay.frame_graph.desc": "Show a 7.5 s frame-time graph along the bottom edge",
     "overlay.gpu": "GPU",
     "overlay.gpu.desc": "Show GPU temperature and VRAM usage",
     "overlay.fps": "FPS",
